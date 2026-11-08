@@ -933,10 +933,10 @@ fun SettingsScreen(
                     onClick  = { onInstallUpdate() }
                 )
 
-                UpdateUiState.NeedsInstallPermission -> {
+                is UpdateUiState.NeedsInstallPermission -> {
                     SettingsRow(
                         label    = "Install permission needed",
-                        sublabel = "Allow “install unknown apps” for Open Launcher, then tap Download again",
+                        sublabel = "Allow “install unknown apps” for Open Launcher, then tap Continue",
                         icon     = Icons.Default.Lock
                     ) {}
                     SettingsButton(
@@ -947,6 +947,13 @@ fun SettingsScreen(
                         onClick  = {
                             runCatching { context.startActivity(ApkDownloader.requestInstallPermissionIntent(context)) }
                         }
+                    )
+                    SettingsButton(
+                        label    = "Continue",
+                        sublabel = "Re-checks the grant, then downloads",
+                        icon     = Icons.Default.Download,
+                        accent   = accent,
+                        onClick  = { onDownloadUpdate() }
                     )
                 }
 

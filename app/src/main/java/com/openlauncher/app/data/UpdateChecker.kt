@@ -76,7 +76,8 @@ sealed interface UpdateUiState {
     data class Failed(val message: String) : UpdateUiState
     data class Downloading(val percent: Int) : UpdateUiState
     data class ReadyToInstall(val remote: RemoteUpdate) : UpdateUiState
-    data object NeedsInstallPermission : UpdateUiState
+    // Carries the remote so "Continue" after granting can resume without re-checking.
+    data class NeedsInstallPermission(val remote: RemoteUpdate) : UpdateUiState
 }
 
 // ── Pure logic (unit-tested) ─────────────────────────────────────────────────

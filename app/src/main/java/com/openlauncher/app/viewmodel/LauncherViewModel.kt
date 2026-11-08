@@ -118,13 +118,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun downloadAndInstallUpdate() {
         val remote = when (val s = _updateState.value) {
             is UpdateUiState.UpdateAvailable -> s.remote
+            is UpdateUiState.NeedsInstallPermission -> s.remote   // "Continue" after granting
             is UpdateUiState.ReadyToInstall  -> { installDownloadedUpdate(); return }
             else -> return
         }
         if (updateFlowJob?.isActive == true) return
         val app = getApplication<Application>()
         if (!ApkDownloader.canInstall(app)) {
-            _updateState.value = UpdateUiState.NeedsInstallPermission
+            _updateState.value = UpdateUiState.NeedsInstallPermission(remote)
             return
         }
         updateFlowJob = viewModelScope.launch {
@@ -161,7 +162,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun installDownloadedUpdate() {
         val remote = (_updateState.value as? UpdateUiState.ReadyToInstall)?.remote ?: return
         val app = getApplication<Application>()
-        if (!ApkDownloader.canInstall(app)) { _updateState.value = UpdateUiState.NeedsInstallPermission; return }
+        if (!ApkDownloader.canInstall(app)) { _updateState.value = UpdateUiState.NeedsInstallPermission(remote); return }
         val file = ApkDownloader.downloadedFile(app, remote.fileName)
         if (file == null || !file.isFile) { checkForUpdates(); return }
         runCatching { app.startActivity(ApkDownloader.installIntent(app, file)) }

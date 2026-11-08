@@ -29,11 +29,10 @@ object ApkDownloader {
             setDescription("OpenLauncher update")
             setMimeType("application/vnd.android.package-archive")
             setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
-            setNotificationVisibility(
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
-                    DownloadManager.Request.VISIBILITY_HIDDEN
-                else DownloadManager.Request.VISIBILITY_VISIBLE
-            )
+            // VISIBILITY_HIDDEN is NOT allowed for normal apps (throws
+            // "Invalid value for visibility: 2" at enqueue unless system/WRITE_SETTINGS) —
+            // VISIBLE just shows the system progress notification while downloading.
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             setRequiresDeviceIdle(false)
         }
         return dm.enqueue(request)
