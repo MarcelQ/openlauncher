@@ -1,6 +1,8 @@
 package com.openlauncher.app
 
 import android.Manifest
+import android.content.Intent
+import android.hardware.usb.UsbManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -59,6 +61,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         hideSystemBars()
 
+        // The manifest's USB_DEVICE_ATTACHED filter raises this activity when the TPMS stick
+        // is plugged in — that is how the receiver comes up without touching settings.
+        if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) vm.onUsbDeviceAttached()
+
         setContent {
             val settingsLoaded by vm.settingsLoaded.collectAsStateWithLifecycle()
             val settings       by vm.settings.collectAsStateWithLifecycle()
@@ -73,6 +79,8 @@ class MainActivity : ComponentActivity() {
             val isData      by vm.isData.collectAsStateWithLifecycle()
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
             val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
+            val tpmsSnapshot  by vm.tpmsSnapshot.collectAsStateWithLifecycle()
+            val tpms        by vm.tpmsSnapshot.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
             val pickerSlot      by vm.shortcutPickerSlot.collectAsStateWithLifecycle()
@@ -229,7 +237,9 @@ class MainActivity : ComponentActivity() {
                                         onRadioCycleFm        = { vm.radioCycleFm() },
                                         onRadioSwitchAm       = { vm.radioSwitchAm() },
                                         onRadioTune           = { band, freq -> vm.radioTune(band, freq) },
-                                        onAssignRadio         = { vm.startRadioPicker() }
+                                        onAssignRadio         = { vm.startRadioPicker() },
+                                        tpms                  = tpmsSnapshot,
+                                        onTpmsConnect         = { vm.requestTpmsConnect() }
                                     )
 
                                     NavDestination.APP_LIBRARY -> AppLibraryScreen(
@@ -290,6 +300,13 @@ class MainActivity : ComponentActivity() {
             }
             } // CompositionLocalProvider
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // singleTask: a plug-in while the launcher is already running lands here, not in onCreate
+        setIntent(intent)
+        if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) vm.onUsbDeviceAttached()
     }
 
     override fun onResume() {

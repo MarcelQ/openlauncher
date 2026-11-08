@@ -29,6 +29,14 @@
     <!-- Query all packages required on API 30+ for getInstalledApplications -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!-- USB host (OTG) for the TPMS tyre-pressure receiver. required=false keeps the APK
+         installable on head units that have no USB host at all — there TPMS simply stays
+         unavailable. No uses-permission is needed: USB access is granted per device by the
+         user, and plugging the receiver in is answered by the intent filter below. -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
     <!-- Required on API 30+ so PackageManager returns ALL launcher apps -->
     <queries>
         <intent>
@@ -62,6 +70,16 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Plugging in the TPMS receiver (or any supported serial stick) raises the
+                 launcher and pre-grants USB permission, so the card can connect without the
+                 user opening settings. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
         </activity>
 
         <!-- Notification listener service for MediaSession / Now Playing -->

@@ -78,5 +78,11 @@ dependencies {
     // JSON serialization
     implementation("com.google.code.gson:gson:2.13.1")
 
+    // USB host serial for the TPMS receiver (FTDI / CH34x / CP210x / CDC-ACM). MIT licensed.
+    implementation("com.github.mik3y:usb-serial-for-android:3.11.0")
+
+    // Unit tests — first test source set in this project (protocol decoder only, no device needed)
+    testImplementation("junit:junit:4.13.2")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

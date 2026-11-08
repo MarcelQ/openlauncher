@@ -2,6 +2,7 @@ package com.openlauncher.app.data
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import com.openlauncher.app.tpms.PressureUnit
 
 enum class ClockStyle { DIGITAL, ANALOG }
 enum class UnitSystem { METRIC, IMPERIAL }
@@ -100,6 +101,15 @@ data class AppSettings(
     val compassOffset: Float = 0f,
     val showSoundboard: Boolean = false,
     val soundboardPads: List<SoundPadConfig> = defaultSoundboardPads(),
+    val showVolume: Boolean = false,
+    // ── TPMS (USB receiver) ───────────────────────────────────────────────────────
+    // Off by default: the grid is full in the stock layout, so the card is added from the
+    // widget library. Enabling it is what arms the auto-connect loop.
+    val showTpms: Boolean = false,
+    val tpmsAutoConnect: Boolean = true,
+    val tpmsPressureUnit: PressureUnit = PressureUnit.BAR,
+    /** Alarm threshold, always stored in kPa so changing the display unit can't shift it. */
+    val tpmsLowPressureKpa: Float = 200f,
     val vitalsAsBars: Boolean = false,
     val speedometerDigitalOnly: Boolean = false,
     val gradientDirection: GradientDirection = GradientDirection.DIAGONAL,
@@ -130,6 +140,8 @@ fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
     if (showVitals) add("VITALS")
     if (showTripTracker) add("TRIP_TRACKER")
     if (showSoundboard) add("SOUNDBOARD")
+    if (showVolume) add("VOLUME")
+    if (showTpms) add("TPMS")
 }
 
 /**

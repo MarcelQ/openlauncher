@@ -32,6 +32,7 @@ import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.UnitSystem
+import com.openlauncher.app.tpms.PressureUnit
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.util.SunriseSunset
 import kotlinx.coroutines.launch
@@ -745,6 +746,83 @@ fun SettingsScreen(
             }
         }
 
+        // ── Tyre pressure (USB TPMS receiver) ────────────────────────────────
+        // No card on/off switch here: card visibility is owned by the widget library so the
+        // grid layout is committed through the same path as every other card.
+        SettingsSection("Tyre Pressure (TPMS)") {
+            val pressureUnit = settings.tpmsPressureUnit
+
+            SettingsRow(
+                label    = "Auto-connect receiver",
+                sublabel = "Opens the USB stick by itself once the TIRE PRESSURE card is on the " +
+                    "home grid. Off = connect from the card.",
+                icon     = Icons.Default.Usb
+            ) {
+                Switch(
+                    checked         = settings.tpmsAutoConnect,
+                    onCheckedChange = { onUpdate { copy(tpmsAutoConnect = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Pressure unit",
+                sublabel = "Sensor steps are 3.4 kPa (0.5 psi); the USB link carries no battery " +
+                    "value, so the card shows B—",
+                icon     = Icons.Default.Speed
+            ) {
+                Row {
+                    PressureUnit.entries.forEachIndexed { index, u ->
+                        if (index > 0) Spacer(Modifier.width(6.dp))
+                        FilterChip(
+                            selected = pressureUnit == u,
+                            onClick  = { onUpdate { copy(tpmsPressureUnit = u) } },
+                            label    = { Text(u.label, fontSize = 11.sp) },
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = accent,
+                                selectedLabelColor     = Color.Black
+                            )
+                        )
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            // Threshold is stored in kPa (see AppSettings.tpmsLowPressureKpa); the slider works
+            // in the selected display unit and converts on write, so switching units later
+            // cannot move the alarm point.
+            Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                SettingsRow(
+                    label    = "Low pressure alarm",
+                    sublabel = "Card turns red below ${pressureUnit.formatWithUnit(settings.tpmsLowPressureKpa)}",
+                    icon     = Icons.Default.Warning
+                ) {}
+                val lo = pressureUnit.fromKpa(PressureUnit.MIN_THRESHOLD_KPA)
+                val hi = pressureUnit.fromKpa(PressureUnit.MAX_THRESHOLD_KPA)
+                Slider(
+                    value         = pressureUnit.fromKpa(settings.tpmsLowPressureKpa).coerceIn(lo, hi),
+                    onValueChange = { v ->
+                        onUpdate { copy(tpmsLowPressureKpa = pressureUnit.toKpa(v).coerceIn(
+                            PressureUnit.MIN_THRESHOLD_KPA, PressureUnit.MAX_THRESHOLD_KPA)) }
+                    },
+                    valueRange    = lo..hi,
+                    steps         = tpmsThresholdSteps(pressureUnit),
+                    colors        = sliderColors(accent),
+                    modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+                Text(
+                    text       = "Not yet calibrated against a gauge — expect up to 0.2 bar error " +
+                        "until the receiver's sensor offset is verified on the vehicle.",
+                    fontSize   = 10.sp,
+                    color      = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                    modifier   = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+        }
+
         // ── Updates ──────────────────────────────────────────────────────────
         SettingsSection("Updates") {
             SettingsButton(
@@ -983,4 +1061,15 @@ private fun fontDisplayName(font: AppFont): String = when (font) {
     AppFont.SYSTEM          -> "System"
     AppFont.JETBRAINS_MONO  -> "JetBrains Mono"
     AppFont.SOURCE_CODE_PRO -> "Source Code Pro"
+}
+
+/**
+ * Slider detents for the TPMS low-pressure alarm. The span is always 300 kPa
+ * ([PressureUnit.MIN_THRESHOLD_KPA]..[MAX_THRESHOLD_KPA]) expressed in the selected unit:
+ * 0.1 bar, 10 kPa and roughly 3 psi steps.
+ */
+private fun tpmsThresholdSteps(unit: PressureUnit): Int = when (unit) {
+    PressureUnit.BAR -> 29
+    PressureUnit.KPA -> 29
+    PressureUnit.PSI -> 14
 }

@@ -30,6 +30,8 @@ import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.service.MediaListenerService
+import com.openlauncher.app.tpms.TpmsRepository
+import com.openlauncher.app.tpms.TpmsSnapshot
 import com.openlauncher.app.util.LocationCompassManager
 import com.openlauncher.app.util.LocationData
 import kotlinx.coroutines.*
@@ -219,6 +221,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "VITALS"      -> copy(showVitals = true)
                 "TRIP_TRACKER" -> copy(showTripTracker = true)
                 "SOUNDBOARD"  -> copy(showSoundboard = true)
+                "VOLUME"      -> copy(showVolume = true)
+                "TPMS"       -> copy(showTpms = true)
                 else          -> this
             }
             val idx       = layout.indexOfFirst { it.id == id }
@@ -250,6 +254,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "VITALS"      -> copy(showVitals = false)
                 "TRIP_TRACKER" -> copy(showTripTracker = false)
                 "SOUNDBOARD"  -> copy(showSoundboard = false)
+                "VOLUME"      -> copy(showVolume = false)
                 else          -> this
             }
         }
@@ -395,6 +400,29 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             } catch (e: Exception) {
                 _weatherError.value = e.message
             }
+        }
+    }
+
+    // ── Location & Compass ────────────────────────────────────────────────────
+    // ── TPMS (USB tyre-pressure receiver) ─────────────────────────────────────
+    // Repository is process-scoped, not ViewModel-scoped: the link (and therefore the
+    // low-pressure warning) must survive navigation, and the serial port may only be opened
+    // once. The ViewModel only mirrors its snapshot and pushes settings into it.
+    private val tpms = TpmsRepository.get(getApplication())
+
+    val tpmsSnapshot: StateFlow<TpmsSnapshot> = tpms.snapshot
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TpmsSnapshot())
+
+    /** Card action: bring the receiver up (or retry) without opening the settings screen. */
+    fun requestTpmsConnect() = tpms.requestConnect("card")
+
+    /** Plug-in hook from MainActivity's USB_DEVICE_ATTACHED intent. */
+    fun onUsbDeviceAttached() = tpms.onPlugIn("usb intent")
+
+    // Settings drive the repository: showing the card is what arms auto-connect.
+    init {
+        viewModelScope.launch {
+            settings.collect { s -> tpms.configure(s.showTpms, s.tpmsAutoConnect) }
         }
     }
 

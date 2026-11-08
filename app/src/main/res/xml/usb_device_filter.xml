@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    USB devices that may raise the launcher (and pre-grant USB permission) when plugged in.
+
+    Keep this list narrow: every entry is a device the system is allowed to hand to this app
+    without asking. The ids below are the serial chips the U06-family TPMS receivers are
+    actually built from — the receiver vendor's own app whitelists exactly the first three.
+
+    Decimal ids, as required by the device-filter parser:
+      1027 = 0x0403 FTDI      24577 = 0x6001 FT232R   24597 = 0x6015 FT231X
+      6790 = 0x1A86 Qinheng   29987 = 0x7523 CH340     21795 = 0x5523 CH341A
+      4292 = 0x10C4 Silicon Labs CP210x
+-->
+<usb>
+    <!-- Known-good TPMS receiver ids (vendor app whitelist) -->
+    <usb-device vendor-id="1027" product-id="24577" />
+    <usb-device vendor-id="1027" product-id="24597" />
+    <usb-device vendor-id="6790" product-id="29987" />
+
+    <!-- Same receiver family, other chip revisions -->
+    <usb-device vendor-id="6790" product-id="21795" />
+    <usb-device vendor-id="4292" product-id="60000" />
+
+    <!-- Whole-vendor fallbacks: these vendors only make USB-to-serial bridges, and cheap
+         head-unit sticks use clone chips with reprogrammed product ids -->
+    <usb-device vendor-id="6790" />
+    <usb-device vendor-id="1027" />
+
+    <!-- CDC-ACM sticks report no usable vendor id at all -->
+    <usb-device class="2" subclass="0" />
+</usb>

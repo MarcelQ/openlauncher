@@ -64,7 +64,9 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("SPEEDOMETER", "SPEED",       Icons.Default.Speed,         "GPS speed"),
     WidgetTypeInfo("VITALS",      "VITALS",      Icons.Default.Dns,           "Head Unit Health / Vitals"),
     WidgetTypeInfo("TRIP_TRACKER", "TRIP TRACKER", Icons.Default.Map,          "Trip logs & stats"),
-    WidgetTypeInfo("SOUNDBOARD",  "SOUNDBOARD",  Icons.Default.Piano,         "Custom sound pads")
+    WidgetTypeInfo("SOUNDBOARD",  "SOUNDBOARD",  Icons.Default.Piano,         "Custom sound pads"),
+    WidgetTypeInfo("VOLUME",      "VOLUME",      Icons.Default.VolumeUp,      "Media volume control"),
+    WidgetTypeInfo("TPMS",        "TIRE PRESSURE", Icons.Default.Usb,         "Tyre pressure (USB receiver)")
 )
 
 private fun canAddWidget(settings: com.openlauncher.app.data.AppSettings): Boolean {
@@ -78,6 +80,8 @@ private fun canAddWidget(settings: com.openlauncher.app.data.AppSettings): Boole
         if (settings.showVitals) add("VITALS")
         if (settings.showTripTracker) add("TRIP_TRACKER")
         if (settings.showSoundboard) add("SOUNDBOARD")
+        if (settings.showVolume) add("VOLUME")
+        if (settings.showTpms) add("TPMS")
     }
     val activeWidgets = settings.widgetLayout.filter { it.enabled && it.id in visibleIds }
     val occupied = buildSet<Pair<Int, Int>> {
@@ -125,6 +129,8 @@ fun HomeScreen(
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit = {},
     onUpdateSoundPad: (index: Int, pad: com.openlauncher.app.data.SoundPadConfig) -> Unit = { _, _ -> },
     hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState? = null,
+    tpms: com.openlauncher.app.tpms.TpmsSnapshot = com.openlauncher.app.tpms.TpmsSnapshot(),
+    onTpmsConnect: () -> Unit = {},
     onLaunchHardwareRadio: () -> Unit = {},
     onStopHardwareRadio: () -> Unit = {},
     onRadioSeekUp: () -> Unit = {},
@@ -243,6 +249,8 @@ fun HomeScreen(
                 if (settings.showVitals) add("VITALS")
                 if (settings.showTripTracker) add("TRIP_TRACKER")
                 if (settings.showSoundboard) add("SOUNDBOARD")
+                if (settings.showVolume) add("VOLUME")
+                if (settings.showTpms) add("TPMS")
             }
 
             // Keep only visible widgets exactly as configured in settings, allowing explicit resizing to dictate layout
@@ -318,6 +326,7 @@ fun HomeScreen(
                     "SPEEDOMETER" -> "SPEED"
                     "TRIP_TRACKER" -> "TRIP"
                     "SOUNDBOARD"  -> "SOUND"
+                    "TPMS"        -> "TIRE PRESSURE"
                     else          -> w.id
                 }
 
@@ -474,6 +483,23 @@ fun HomeScreen(
                             onUpdatePad = onUpdateSoundPad,
                             modifier  = Modifier.fillMaxSize()
                         )
+                        "VOLUME" -> VolumeWidget(
+                            accent    = accent,
+                            isDayMode = isDayMode,
+                            isEditing = editMode,
+                            modifier  = Modifier.fillMaxSize()
+                        )
+                        "TPMS" -> TpmsWidget(
+                            snapshot       = tpms,
+                            unit           = settings.tpmsPressureUnit,
+                            lowPressureKpa = settings.tpmsLowPressureKpa,
+                            accent         = accent,
+                            isMetric       = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
+                            isDayMode      = isDayMode,
+                            isEditing      = editMode,
+                            onConnect      = onTpmsConnect,
+                            modifier       = Modifier.fillMaxSize()
+                        )
                     }
 
                     // Label — hide when album art fills the widget background
@@ -520,6 +546,7 @@ fun HomeScreen(
             onSetClockStyle     = { onSetClockStyle(it) },
             onSetVitalsAsBars   = { onSetVitalsAsBars(it) },
             onSetSpeedometerDigitalOnly = { onSetSpeedometerDigitalOnly(it) },
+            onTpmsConnect          = { contextMenuId = null; onTpmsConnect() },
             onDismiss           = { contextMenuId = null }
         )
     }
@@ -575,6 +602,7 @@ private fun WidgetContextMenu(
     onSetClockStyle: (ClockStyle) -> Unit,
     onSetVitalsAsBars: (Boolean) -> Unit,
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit,
+    onTpmsConnect: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val menuBg    = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF111111)
@@ -642,6 +670,16 @@ private fun WidgetContextMenu(
                     icon    = Icons.Default.Dialpad,
                     tint    = if (speedometerDigitalOnly) accent else inactiveMenuTint,
                     onClick = { onSetSpeedometerDigitalOnly(true); onDismiss() },
+                    isDayMode = isDayMode
+                )
+            }
+            if (widgetId == "TPMS") {
+                HorizontalDivider(color = menuDivider)
+                ContextRow(
+                    label     = "CONNECT USB RECEIVER",
+                    icon      = Icons.Default.Usb,
+                    tint      = accent,
+                    onClick   = { onTpmsConnect() },
                     isDayMode = isDayMode
                 )
             }
@@ -839,6 +877,8 @@ private fun WidgetLibraryDialog(
         if (settings.showVitals) add("VITALS")
         if (settings.showTripTracker) add("TRIP_TRACKER")
         if (settings.showSoundboard) add("SOUNDBOARD")
+        if (settings.showVolume) add("VOLUME")
+        if (settings.showTpms) add("TPMS")
     }
     val canAdd = canAddWidget(settings)
 

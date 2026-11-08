@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.openlauncher.app.tpms.PressureUnit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -55,6 +56,11 @@ class SettingsRepository(private val context: Context) {
         val COMPASS_OFFSET        = floatPreferencesKey("compass_offset")
         val SHOW_SOUNDBOARD       = booleanPreferencesKey("show_soundboard")
         val SOUNDBOARD_PADS_JSON  = stringPreferencesKey("soundboard_pads_json")
+        val SHOW_VOLUME           = booleanPreferencesKey("show_volume")
+        val SHOW_TPMS             = booleanPreferencesKey("show_tpms")
+        val TPMS_AUTO_CONNECT     = booleanPreferencesKey("tpms_auto_connect")
+        val TPMS_PRESSURE_UNIT    = stringPreferencesKey("tpms_pressure_unit")
+        val TPMS_LOW_PRESSURE_KPA = floatPreferencesKey("tpms_low_pressure_kpa")
         val VITALS_AS_BARS        = booleanPreferencesKey("vitals_as_bars")
         val SPEEDOMETER_DIGITAL_ONLY = booleanPreferencesKey("speedometer_digital_only")
         val GRADIENT_DIRECTION    = stringPreferencesKey("gradient_direction")
@@ -126,6 +132,14 @@ class SettingsRepository(private val context: Context) {
                 showTripTracker  = prefs[Keys.SHOW_TRIP_TRACKER] ?: defaults.showTripTracker,
                 compassOffset    = prefs[Keys.COMPASS_OFFSET]    ?: defaults.compassOffset,
                 showSoundboard   = prefs[Keys.SHOW_SOUNDBOARD]   ?: defaults.showSoundboard,
+                showVolume       = prefs[Keys.SHOW_VOLUME]       ?: defaults.showVolume,
+                showTpms         = prefs[Keys.SHOW_TPMS]         ?: defaults.showTpms,
+                tpmsAutoConnect  = prefs[Keys.TPMS_AUTO_CONNECT] ?: defaults.tpmsAutoConnect,
+                tpmsPressureUnit = prefs[Keys.TPMS_PRESSURE_UNIT]?.let {
+                    runCatching { PressureUnit.valueOf(it) }.getOrNull()
+                } ?: defaults.tpmsPressureUnit,
+                tpmsLowPressureKpa = (prefs[Keys.TPMS_LOW_PRESSURE_KPA] ?: defaults.tpmsLowPressureKpa)
+                    .coerceIn(PressureUnit.MIN_THRESHOLD_KPA, PressureUnit.MAX_THRESHOLD_KPA),
                 soundboardPads   = prefs[Keys.SOUNDBOARD_PADS_JSON]?.let {
                     runCatching {
                         gson.fromJson<List<SoundPadConfig>>(it, object : com.google.gson.reflect.TypeToken<List<SoundPadConfig>>() {}.type)
@@ -187,6 +201,11 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.COMPASS_OFFSET]     = s.compassOffset
             prefs[Keys.SHOW_SOUNDBOARD]    = s.showSoundboard
             prefs[Keys.SOUNDBOARD_PADS_JSON] = gson.toJson(s.soundboardPads)
+            prefs[Keys.SHOW_VOLUME]        = s.showVolume
+            prefs[Keys.SHOW_TPMS]          = s.showTpms
+            prefs[Keys.TPMS_AUTO_CONNECT]  = s.tpmsAutoConnect
+            prefs[Keys.TPMS_PRESSURE_UNIT] = s.tpmsPressureUnit.name
+            prefs[Keys.TPMS_LOW_PRESSURE_KPA] = s.tpmsLowPressureKpa
             prefs[Keys.VITALS_AS_BARS]     = s.vitalsAsBars
             prefs[Keys.SPEEDOMETER_DIGITAL_ONLY] = s.speedometerDigitalOnly
             prefs[Keys.GRADIENT_DIRECTION] = s.gradientDirection.name
