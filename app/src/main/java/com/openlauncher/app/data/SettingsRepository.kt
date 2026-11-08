@@ -57,6 +57,11 @@ class SettingsRepository(private val context: Context) {
         val SHOW_SOUNDBOARD       = booleanPreferencesKey("show_soundboard")
         val SOUNDBOARD_PADS_JSON  = stringPreferencesKey("soundboard_pads_json")
         val SHOW_VOLUME           = booleanPreferencesKey("show_volume")
+        val SHOW_BRIGHTNESS       = booleanPreferencesKey("show_brightness")
+        val BRIGHTNESS_AUTO       = booleanPreferencesKey("brightness_auto")
+        val BRIGHTNESS_HIGH_PCT   = intPreferencesKey("brightness_high_pct")
+        val BRIGHTNESS_MEDIUM_PCT = intPreferencesKey("brightness_medium_pct")
+        val BRIGHTNESS_LOW_PCT    = intPreferencesKey("brightness_low_pct")
         val SHOW_TPMS             = booleanPreferencesKey("show_tpms")
         val TPMS_AUTO_CONNECT     = booleanPreferencesKey("tpms_auto_connect")
         val TPMS_PRESSURE_UNIT    = stringPreferencesKey("tpms_pressure_unit")
@@ -133,6 +138,11 @@ class SettingsRepository(private val context: Context) {
                 compassOffset    = prefs[Keys.COMPASS_OFFSET]    ?: defaults.compassOffset,
                 showSoundboard   = prefs[Keys.SHOW_SOUNDBOARD]   ?: defaults.showSoundboard,
                 showVolume       = prefs[Keys.SHOW_VOLUME]       ?: defaults.showVolume,
+                showBrightness   = prefs[Keys.SHOW_BRIGHTNESS]   ?: defaults.showBrightness,
+                brightnessAuto   = prefs[Keys.BRIGHTNESS_AUTO]   ?: defaults.brightnessAuto,
+                brightnessHighPct   = prefs[Keys.BRIGHTNESS_HIGH_PCT]?.coerceIn(1, 100)   ?: defaults.brightnessHighPct,
+                brightnessMediumPct = prefs[Keys.BRIGHTNESS_MEDIUM_PCT]?.coerceIn(1, 100) ?: defaults.brightnessMediumPct,
+                brightnessLowPct    = prefs[Keys.BRIGHTNESS_LOW_PCT]?.coerceIn(1, 100)    ?: defaults.brightnessLowPct,
                 showTpms         = prefs[Keys.SHOW_TPMS]         ?: defaults.showTpms,
                 tpmsAutoConnect  = prefs[Keys.TPMS_AUTO_CONNECT] ?: defaults.tpmsAutoConnect,
                 tpmsPressureUnit = prefs[Keys.TPMS_PRESSURE_UNIT]?.let {
@@ -202,6 +212,11 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SHOW_SOUNDBOARD]    = s.showSoundboard
             prefs[Keys.SOUNDBOARD_PADS_JSON] = gson.toJson(s.soundboardPads)
             prefs[Keys.SHOW_VOLUME]        = s.showVolume
+            prefs[Keys.SHOW_BRIGHTNESS]    = s.showBrightness
+            prefs[Keys.BRIGHTNESS_AUTO]    = s.brightnessAuto
+            prefs[Keys.BRIGHTNESS_HIGH_PCT]   = s.brightnessHighPct
+            prefs[Keys.BRIGHTNESS_MEDIUM_PCT] = s.brightnessMediumPct
+            prefs[Keys.BRIGHTNESS_LOW_PCT]    = s.brightnessLowPct
             prefs[Keys.SHOW_TPMS]          = s.showTpms
             prefs[Keys.TPMS_AUTO_CONNECT]  = s.tpmsAutoConnect
             prefs[Keys.TPMS_PRESSURE_UNIT] = s.tpmsPressureUnit.name

@@ -26,6 +26,12 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!-- Screen brightness card: writes Settings.System.SCREEN_BRIGHTNESS.
+         Normal permission on API < 23 (auto-granted on old head units), app-op from
+         API 23 on — user grants on the "Modify system settings" page, which the
+         card routes to when tapped without it. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
     <!-- Query all packages required on API 30+ for getInstalledApplications -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 

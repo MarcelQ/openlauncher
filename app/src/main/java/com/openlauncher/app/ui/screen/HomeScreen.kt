@@ -28,6 +28,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -66,6 +67,7 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("TRIP_TRACKER", "TRIP TRACKER", Icons.Default.Map,          "Trip logs & stats"),
     WidgetTypeInfo("SOUNDBOARD",  "SOUNDBOARD",  Icons.Default.Piano,         "Custom sound pads"),
     WidgetTypeInfo("VOLUME",      "VOLUME",      Icons.Default.VolumeUp,      "Media volume control"),
+    WidgetTypeInfo("BRIGHTNESS",  "BRIGHTNESS",  Icons.Default.WbSunny,       "Screen brightness presets"),
     WidgetTypeInfo("TPMS",        "TIRE PRESSURE", Icons.Default.Usb,         "Tyre pressure (USB receiver)")
 )
 
@@ -81,6 +83,7 @@ private fun canAddWidget(settings: com.openlauncher.app.data.AppSettings): Boole
         if (settings.showTripTracker) add("TRIP_TRACKER")
         if (settings.showSoundboard) add("SOUNDBOARD")
         if (settings.showVolume) add("VOLUME")
+        if (settings.showBrightness) add("BRIGHTNESS")
         if (settings.showTpms) add("TPMS")
     }
     val activeWidgets = settings.widgetLayout.filter { it.enabled && it.id in visibleIds }
@@ -139,6 +142,8 @@ fun HomeScreen(
     onRadioSwitchAm: () -> Unit = {},
     onRadioTune: (band: String, freq: Float) -> Unit = { _, _ -> },
     onAssignRadio: () -> Unit = {},
+    onSetBrightnessLevel: (slot: String, pct: Int) -> Unit = { _, _ -> },
+    onSetBrightnessAuto: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val accent       = Color(settings.accentColor)
@@ -250,6 +255,7 @@ fun HomeScreen(
                 if (settings.showTripTracker) add("TRIP_TRACKER")
                 if (settings.showSoundboard) add("SOUNDBOARD")
                 if (settings.showVolume) add("VOLUME")
+                if (settings.showBrightness) add("BRIGHTNESS")
                 if (settings.showTpms) add("TPMS")
             }
 
@@ -489,6 +495,16 @@ fun HomeScreen(
                             isEditing = editMode,
                             modifier  = Modifier.fillMaxSize()
                         )
+                        "BRIGHTNESS" -> BrightnessWidget(
+                            highPct   = settings.brightnessHighPct,
+                            mediumPct = settings.brightnessMediumPct,
+                            lowPct    = settings.brightnessLowPct,
+                            auto      = settings.brightnessAuto,
+                            accent    = accent,
+                            isDayMode = isDayMode,
+                            isEditing = editMode,
+                            modifier  = Modifier.fillMaxSize()
+                        )
                         "TPMS" -> TpmsWidget(
                             snapshot       = tpms,
                             unit           = settings.tpmsPressureUnit,
@@ -547,6 +563,12 @@ fun HomeScreen(
             onSetVitalsAsBars   = { onSetVitalsAsBars(it) },
             onSetSpeedometerDigitalOnly = { onSetSpeedometerDigitalOnly(it) },
             onTpmsConnect          = { contextMenuId = null; onTpmsConnect() },
+            brightnessAuto           = settings.brightnessAuto,
+            brightnessHighPct        = settings.brightnessHighPct,
+            brightnessMediumPct      = settings.brightnessMediumPct,
+            brightnessLowPct         = settings.brightnessLowPct,
+            onSetBrightnessAuto      = { onSetBrightnessAuto(it) },
+            onSetBrightnessLevel     = { slot, pct -> onSetBrightnessLevel(slot, pct) },
             onDismiss           = { contextMenuId = null }
         )
     }
@@ -603,6 +625,12 @@ private fun WidgetContextMenu(
     onSetVitalsAsBars: (Boolean) -> Unit,
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit,
     onTpmsConnect: () -> Unit = {},
+    brightnessAuto: Boolean = false,
+    brightnessHighPct: Int = 100,
+    brightnessMediumPct: Int = 55,
+    brightnessLowPct: Int = 15,
+    onSetBrightnessAuto: (Boolean) -> Unit = {},
+    onSetBrightnessLevel: (String, Int) -> Unit = { _, _ -> },
     onDismiss: () -> Unit
 ) {
     val menuBg    = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF111111)
@@ -683,6 +711,23 @@ private fun WidgetContextMenu(
                     isDayMode = isDayMode
                 )
             }
+            if (widgetId == "BRIGHTNESS") {
+                HorizontalDivider(color = menuDivider)
+                ContextRow(
+                    label     = if (brightnessAuto) "AUTO: SUN + WEATHER" else "AUTO: OFF",
+                    icon      = Icons.Default.BrightnessAuto,
+                    tint      = if (brightnessAuto) accent else inactiveMenuTint,
+                    onClick   = { onSetBrightnessAuto(!brightnessAuto) },
+                    isDayMode = isDayMode
+                )
+                // Preset level steppers — menu stays open so the values are visible
+                HorizontalDivider(color = menuDivider)
+                BrightnessLevelRow("HIGH", brightnessHighPct, accent, isDayMode) { onSetBrightnessLevel("HIGH", it) }
+                HorizontalDivider(color = menuDivider)
+                BrightnessLevelRow("MED",  brightnessMediumPct, accent, isDayMode) { onSetBrightnessLevel("MEDIUM", it) }
+                HorizontalDivider(color = menuDivider)
+                BrightnessLevelRow("LOW",  brightnessLowPct, accent, isDayMode) { onSetBrightnessLevel("LOW", it) }
+            }
             if (widgetId == "NOW_PLAYING") {
                 HorizontalDivider(color = menuDivider)
                 ContextRow("ASSIGN CARPLAY APP",      Icons.Default.PhoneAndroid,  accent, onAssignCarPlay, isDayMode = isDayMode)
@@ -731,6 +776,63 @@ private fun ContextRow(
     ) {
         Icon(icon, null, tint = finalTint, modifier = Modifier.size(16.dp))
         Text(label, color = finalTint, fontSize = 10.sp, letterSpacing = 1.sp)
+    }
+}
+
+/** − / + stepper for one BRIGHTNESS preset level (5% steps), kept inside the context menu. */
+@Composable
+private fun BrightnessLevelRow(
+    label: String,
+    pct: Int,
+    accent: Color,
+    isDayMode: Boolean,
+    onChange: (Int) -> Unit
+) {
+    val textColor  = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
+    val dimColor   = if (isDayMode) Color(0xFF777777) else Color(0xFF555555)
+    val disabledC  = if (isDayMode) Color(0xFFCED4DA) else Color(0xFF333333)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalAlignment     = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text          = label,
+            color         = dimColor,
+            fontSize      = 9.sp,
+            letterSpacing = 1.sp,
+            modifier      = Modifier.width(38.dp)
+        )
+        IconButton(
+            onClick  = { if (pct > 1) onChange((pct - 5).coerceAtLeast(1)) },
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(
+                Icons.Default.Remove, null,
+                tint     = if (pct > 1) textColor else disabledC,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+        Text(
+            text          = "$pct%",
+            color         = textColor,
+            fontSize      = 11.sp,
+            fontFamily    = FontFamily.Monospace,
+            textAlign     = TextAlign.Center,
+            modifier      = Modifier.width(38.dp)
+        )
+        IconButton(
+            onClick  = { if (pct < 100) onChange((pct + 5).coerceAtMost(100)) },
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(
+                Icons.Default.Add, null,
+                tint     = if (pct < 100) accent else disabledC,
+                modifier = Modifier.size(14.dp)
+            )
+        }
     }
 }
 
@@ -878,6 +980,7 @@ private fun WidgetLibraryDialog(
         if (settings.showTripTracker) add("TRIP_TRACKER")
         if (settings.showSoundboard) add("SOUNDBOARD")
         if (settings.showVolume) add("VOLUME")
+        if (settings.showBrightness) add("BRIGHTNESS")
         if (settings.showTpms) add("TPMS")
     }
     val canAdd = canAddWidget(settings)

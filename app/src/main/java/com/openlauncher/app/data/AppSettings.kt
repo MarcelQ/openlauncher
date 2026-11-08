@@ -102,6 +102,15 @@ data class AppSettings(
     val showSoundboard: Boolean = false,
     val soundboardPads: List<SoundPadConfig> = defaultSoundboardPads(),
     val showVolume: Boolean = false,
+    // ── Screen brightness ─────────────────────────────────────────────────────────
+    // Preset levels are 1..100 (% of the SCREEN_BRIGHTNESS range) and only applied
+    // when a card button is tapped or brightnessAuto drives them. Auto needs a GPS
+    // fix (sun position) and uses the weather card's data for cloud cover.
+    val showBrightness: Boolean = false,
+    val brightnessAuto: Boolean = false,
+    val brightnessHighPct: Int = 100,
+    val brightnessMediumPct: Int = 55,
+    val brightnessLowPct: Int = 15,
     // ── TPMS (USB receiver) ───────────────────────────────────────────────────────
     // Off by default: the grid is full in the stock layout, so the card is added from the
     // widget library. Enabling it is what arms the auto-connect loop.
@@ -141,6 +150,7 @@ fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
     if (showTripTracker) add("TRIP_TRACKER")
     if (showSoundboard) add("SOUNDBOARD")
     if (showVolume) add("VOLUME")
+    if (showBrightness) add("BRIGHTNESS")
     if (showTpms) add("TPMS")
 }
 

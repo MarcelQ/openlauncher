@@ -239,7 +239,9 @@ class MainActivity : ComponentActivity() {
                                         onRadioTune           = { band, freq -> vm.radioTune(band, freq) },
                                         onAssignRadio         = { vm.startRadioPicker() },
                                         tpms                  = tpmsSnapshot,
-                                        onTpmsConnect         = { vm.requestTpmsConnect() }
+                                        onTpmsConnect         = { vm.requestTpmsConnect() },
+                                        onSetBrightnessLevel  = { slot, pct -> vm.setBrightnessPct(slot, pct) },
+                                        onSetBrightnessAuto   = { on -> vm.setBrightnessAuto(on) }
                                     )
 
                                     NavDestination.APP_LIBRARY -> AppLibraryScreen(

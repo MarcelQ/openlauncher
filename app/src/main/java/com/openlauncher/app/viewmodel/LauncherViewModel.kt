@@ -25,6 +25,7 @@ import com.openlauncher.app.data.activeWidgetIds
 import com.openlauncher.app.data.computeWidgetMove
 import com.openlauncher.app.data.defaultShortcuts
 import com.openlauncher.app.util.SunriseSunset
+import com.openlauncher.app.util.SystemBrightness
 import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.model.NowPlayingState
@@ -222,6 +223,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "TRIP_TRACKER" -> copy(showTripTracker = true)
                 "SOUNDBOARD"  -> copy(showSoundboard = true)
                 "VOLUME"      -> copy(showVolume = true)
+                "BRIGHTNESS" -> copy(showBrightness = true)
                 "TPMS"       -> copy(showTpms = true)
                 else          -> this
             }
@@ -255,6 +257,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "TRIP_TRACKER" -> copy(showTripTracker = false)
                 "SOUNDBOARD"  -> copy(showSoundboard = false)
                 "VOLUME"      -> copy(showVolume = false)
+                "BRIGHTNESS" -> copy(showBrightness = false)
+                // TPMS was missing here: without this the library could enable the card
+                // but the ACTIVE toggle never turned it back off
+                "TPMS"       -> copy(showTpms = false)
                 else          -> this
             }
         }
@@ -270,6 +276,52 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             copy(soundboardPads = padded)
         }
     }
+
+    // ── Screen brightness ─────────────────────────────────────────────────────
+    fun setBrightnessPct(slot: String, pct: Int) {
+        val v = pct.coerceIn(1, 100)
+        updateSettings {
+            when (slot) {
+                "HIGH"   -> copy(brightnessHighPct = v)
+                "MEDIUM" -> copy(brightnessMediumPct = v)
+                else     -> copy(brightnessLowPct = v)
+            }
+        }
+    }
+
+    fun setBrightnessAuto(on: Boolean) {
+        updateSettings { copy(brightnessAuto = on) }
+    }
+
+    /**
+     * Target for auto-brightness — reuses the same SunriseSunset maths as the
+     * DayNightMode.AUTO theming, but evaluated independently of the theme mode
+     * (the theme can be locked to DARK while brightness still follows the sun):
+     *   night                      -> LOW preset
+     *   day, overcast/fog/rain     -> MEDIUM preset
+     *   day, clear/few clouds      -> HIGH preset
+     * Returns null when AUTO is off or no GPS fix yet (lat/long are required
+     * for the sunrise/sunset computation; without weather data a day counts
+     * as clear).
+     */
+    private fun brightnessTargetPct(s: AppSettings, loc: LocationData?, w: WeatherState?): Int? {
+        if (!s.showBrightness || !s.brightnessAuto) return null
+        val l = loc ?: return null
+        val day = runCatching { SunriseSunset.isDay(l.latitude, l.longitude) }.getOrDefault(true)
+        if (!day) return s.brightnessLowPct
+        val code = w?.weatherCode
+        // Open-Meteo WMO codes: 0 clear, 1 mainly clear; 2/3 and everything from
+        // 45 up (fog, drizzle, rain, snow, thunder) means dim sky
+        return if (code == null || code <= 1) s.brightnessHighPct else s.brightnessMediumPct
+    }
+
+    private var lastAutoBrightnessPct: Int? = null
+    private var autoBrightnessPermWarned = false
+
+    // NOTE: the auto-apply loop is launched in the init block below the
+    // location/weather/minuteTicker declarations — viewModelScope runs on
+    // Dispatchers.Main.immediate, so a launch earlier in the class would see
+    // those properties as null during construction.
 
     private fun freeCellIn(
         layout: List<com.openlauncher.app.data.WidgetConfig>,
@@ -445,6 +497,29 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             DayNightMode.SYSTEM -> false // placeholder — overridden in MainActivity via isSystemInDarkTheme()
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    // Auto-brightness loop. Re-evaluated on each minute tick (day/night boundary
+    // moves), weather fetch and settings change. Only writes when the target
+    // differs from what we last applied, so a manual preset tap between changes
+    // is not fought over.
+    init {
+        viewModelScope.launch {
+            combine(settings, locationMgr.location, _weather, minuteTicker) { s, loc, w, _ ->
+                brightnessTargetPct(s, loc, w)
+            }.collect { target ->
+                if (target == null) { lastAutoBrightnessPct = null; return@collect }
+                if (target != lastAutoBrightnessPct) {
+                    if (SystemBrightness.setPct(getApplication(), target)) {
+                        lastAutoBrightnessPct = target
+                        autoBrightnessPermWarned = false
+                    } else if (!autoBrightnessPermWarned) {
+                        autoBrightnessPermWarned = true
+                        android.util.Log.e("Brightness", "auto brightness needs WRITE_SETTINGS — tap a card button to grant it")
+                    }
+                }
+            }
+        }
+    }
 
     fun startLocationUpdates() = locationMgr.start()
     fun stopLocationUpdates()  = locationMgr.stop()
