@@ -57,6 +57,7 @@ class SettingsRepository(private val context: Context) {
         val SPEEDOMETER_DIGITAL_ONLY = booleanPreferencesKey("speedometer_digital_only")
         val GRADIENT_DIRECTION    = stringPreferencesKey("gradient_direction")
         val USE_CUSTOM_BG_COLOR   = booleanPreferencesKey("use_custom_bg_color")
+        val UPDATE_CHANNEL        = stringPreferencesKey("update_channel")
 
         // Multi-page grid model
         val PAGES_JSON   = stringPreferencesKey("grid_pages_json")
@@ -197,7 +198,10 @@ class SettingsRepository(private val context: Context) {
                 vitalsAsBars     = prefs[Keys.VITALS_AS_BARS] ?: defaults.vitalsAsBars,
                 speedometerDigitalOnly = prefs[Keys.SPEEDOMETER_DIGITAL_ONLY] ?: defaults.speedometerDigitalOnly,
                 gradientDirection = prefs[Keys.GRADIENT_DIRECTION]?.let { runCatching { GradientDirection.valueOf(it) }.getOrNull() } ?: defaults.gradientDirection,
-                useCustomBackgroundColor = prefs[Keys.USE_CUSTOM_BG_COLOR] ?: defaults.useCustomBackgroundColor
+                useCustomBackgroundColor = prefs[Keys.USE_CUSTOM_BG_COLOR] ?: defaults.useCustomBackgroundColor,
+                 updateChannel = prefs[Keys.UPDATE_CHANNEL]?.let {
+                     runCatching { UpdateChannel.valueOf(it) }.getOrNull()?.name ?: defaults.updateChannel
+                 } ?: defaults.updateChannel
             )
     }
 
@@ -253,6 +257,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SPEEDOMETER_DIGITAL_ONLY] = s.speedometerDigitalOnly
             prefs[Keys.GRADIENT_DIRECTION] = s.gradientDirection.name
             prefs[Keys.USE_CUSTOM_BG_COLOR] = s.useCustomBackgroundColor
+            prefs[Keys.UPDATE_CHANNEL]     = s.updateChannel
 
             // Once the new model has been written the legacy keys are dead weight —
             // drop them so a downgrade never reads a half-migrated store again.

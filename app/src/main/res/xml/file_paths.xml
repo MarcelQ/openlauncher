@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider roots for the in-app updater (ApkDownloader). The APK download
+     lands in <externalFilesDir>/Download via setDestinationInExternalFilesDir. -->
+<paths>
+    <external-files-path name="updates" path="Download/" />
+</paths>

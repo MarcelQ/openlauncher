@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
             val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
             val tpmsSnapshot  by vm.tpmsSnapshot.collectAsStateWithLifecycle()
             val tpms        by vm.tpmsSnapshot.collectAsStateWithLifecycle()
+            val updateState by vm.updateState.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
             val pickerSlot      by vm.shortcutPickerSlot.collectAsStateWithLifecycle()
@@ -267,10 +268,15 @@ class MainActivity : ComponentActivity() {
                                     )
 
                                     NavDestination.SETTINGS -> SettingsScreen(
-                                        settings = settings,
-                                        accent   = accent,
-                                        onUpdate = { block -> vm.updateSettings(block) },
-                                        onReset  = { vm.resetSettings() }
+                                        settings           = settings,
+                                        accent             = accent,
+                                        onUpdate           = { block -> vm.updateSettings(block) },
+                                        onReset            = { vm.resetSettings() },
+                                        updateState        = updateState,
+                                        onCheckUpdates     = { vm.checkForUpdates() },
+                                        onDownloadUpdate   = { vm.downloadAndInstallUpdate() },
+                                        onInstallUpdate    = { vm.installDownloadedUpdate() },
+                                        onSetUpdateChannel = { ch -> vm.setUpdateChannel(ch) }
                                     )
                                 }
                             }

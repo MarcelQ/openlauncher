@@ -12,10 +12,13 @@ import android.os.Looper
 import android.provider.Settings as AndroidSettings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.openlauncher.app.BuildConfig
+import com.openlauncher.app.data.ApkDownloader
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.DefaultShortcutIcon
 import com.openlauncher.app.data.GridPage
+import com.openlauncher.app.data.LocalBuild
 import com.openlauncher.app.data.MAX_COLS
 import com.openlauncher.app.data.MAX_PAGES
 import com.openlauncher.app.data.MAX_ROWS
@@ -24,9 +27,15 @@ import com.openlauncher.app.data.MIN_ROWS
 import com.openlauncher.app.data.SettingsRepository
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.SoundPadConfig
+import com.openlauncher.app.data.UpdateApi
+import com.openlauncher.app.data.UpdateChannel
+import com.openlauncher.app.data.UpdateDecision
+import com.openlauncher.app.data.UpdateUiState
 import com.openlauncher.app.data.WeatherApi
 import com.openlauncher.app.data.WidgetInstance
+import com.openlauncher.app.data.buildRemoteUpdate
 import com.openlauncher.app.data.computeWidgetMove
+import com.openlauncher.app.data.decideUpdate
 import com.openlauncher.app.data.defaultShortcuts
 import com.openlauncher.app.data.firstFreeArea
 import com.openlauncher.app.data.firstFreeCell
@@ -67,6 +76,93 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun resetSettings() {
         viewModelScope.launch { settingsRepo.resetToDefaults() }
+    }
+
+    // ── Updates (rolling GitHub releases: dev-latest / main-latest) ─────────
+    // Pure compare/parse logic lives in UpdateChecker.kt (unit-tested); the APK
+    // download + installer handoff lives in ApkDownloader.kt. This is the glue.
+    private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
+    val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
+    private var updateFlowJob: Job? = null
+
+    private fun localBuild() =
+        LocalBuild(BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME, BuildConfig.GIT_SHA)
+
+    fun setUpdateChannel(channel: UpdateChannel) =
+        updateSettings { copy(updateChannel = channel.name) }
+
+    fun checkForUpdates() {
+        viewModelScope.launch {
+            _updateState.value = UpdateUiState.Checking
+            val channel = UpdateChannel.fromKey(settings.value.updateChannel)
+            runCatching { UpdateApi.service.releaseByTag(channel.releaseTag) }.fold(
+                onSuccess = { release ->
+                    val remote = buildRemoteUpdate(release, channel)
+                    if (remote == null) {
+                        _updateState.value = UpdateUiState.Failed("Release ${channel.releaseTag} has no APK asset yet")
+                    } else when (val d = decideUpdate(localBuild(), remote)) {
+                        is UpdateDecision.Available -> _updateState.value = UpdateUiState.UpdateAvailable(remote, d.reason)
+                        UpdateDecision.UpToDate     -> _updateState.value = UpdateUiState.UpToDate(remote)
+                        UpdateDecision.NoApkAsset   -> _updateState.value = UpdateUiState.Failed("Release ${channel.releaseTag} has no APK asset yet")
+                    }
+                },
+                onFailure = { _updateState.value = UpdateUiState.Failed("Can't reach GitHub — check the network") }
+            )
+        }
+    }
+
+    /** Download the tracked release's APK, verify its versionCode, then open the installer. */
+    fun downloadAndInstallUpdate() {
+        val remote = when (val s = _updateState.value) {
+            is UpdateUiState.UpdateAvailable -> s.remote
+            is UpdateUiState.ReadyToInstall  -> { installDownloadedUpdate(); return }
+            else -> return
+        }
+        if (updateFlowJob?.isActive == true) return
+        val app = getApplication<Application>()
+        if (!ApkDownloader.canInstall(app)) {
+            _updateState.value = UpdateUiState.NeedsInstallPermission
+            return
+        }
+        updateFlowJob = viewModelScope.launch {
+            _updateState.value = UpdateUiState.Downloading(0)
+            try {
+                val id = ApkDownloader.download(app, remote.apkUrl, remote.fileName)
+                val deadline = System.currentTimeMillis() + 15L * 60_000L   // slow head-unit Wi-Fi
+                var st = ApkDownloader.status(app, id)
+                while (st.running) {
+                    delay(800)
+                    if (System.currentTimeMillis() > deadline) {
+                        _updateState.value = UpdateUiState.Failed("Download timed out"); return@launch
+                    }
+                    _updateState.value = UpdateUiState.Downloading(st.percent)
+                    st = ApkDownloader.status(app, id)
+                }
+                if (st.failed) { _updateState.value = UpdateUiState.Failed("Download failed"); return@launch }
+                val file = ApkDownloader.downloadedFile(app, remote.fileName)
+                val apkCode = file?.let { ApkDownloader.archiveVersionCode(app, it) }
+                if (file == null || apkCode == null || apkCode < localBuild().versionCode) {
+                    runCatching { file?.delete() }
+                    _updateState.value = UpdateUiState.Failed("Downloaded APK couldn't be verified")
+                } else {
+                    _updateState.value = UpdateUiState.ReadyToInstall(remote)
+                    runCatching { app.startActivity(ApkDownloader.installIntent(app, file)) }
+                        .onFailure { _updateState.value = UpdateUiState.Failed("Couldn't open the installer") }
+                }
+            } catch (e: java.util.concurrent.CancellationException) { throw e }
+              catch (t: Throwable) { _updateState.value = UpdateUiState.Failed("Update failed: ${t.message}") }
+        }
+    }
+
+    /** Re-open the installer for an APK that finished downloading but wasn't installed. */
+    fun installDownloadedUpdate() {
+        val remote = (_updateState.value as? UpdateUiState.ReadyToInstall)?.remote ?: return
+        val app = getApplication<Application>()
+        if (!ApkDownloader.canInstall(app)) { _updateState.value = UpdateUiState.NeedsInstallPermission; return }
+        val file = ApkDownloader.downloadedFile(app, remote.fileName)
+        if (file == null || !file.isFile) { checkForUpdates(); return }
+        runCatching { app.startActivity(ApkDownloader.installIntent(app, file)) }
+            .onFailure { _updateState.value = UpdateUiState.Failed("Couldn't open the installer") }
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────

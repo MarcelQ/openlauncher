@@ -25,6 +25,8 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.openlauncher.app.BuildConfig
+import com.openlauncher.app.data.ApkDownloader
 import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
@@ -32,6 +34,10 @@ import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.UnitSystem
+import com.openlauncher.app.data.UPDATE_REPO
+import com.openlauncher.app.data.UpdateChannel
+import com.openlauncher.app.data.UpdateReason
+import com.openlauncher.app.data.UpdateUiState
 import com.openlauncher.app.tpms.PressureUnit
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.util.SunriseSunset
@@ -48,6 +54,11 @@ fun SettingsScreen(
     accent: Color,
     onUpdate: (AppSettings.() -> AppSettings) -> Unit,
     onReset: () -> Unit,
+    updateState: UpdateUiState,
+    onCheckUpdates: () -> Unit,
+    onDownloadUpdate: () -> Unit,
+    onInstallUpdate: () -> Unit,
+    onSetUpdateChannel: (UpdateChannel) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -825,14 +836,126 @@ fun SettingsScreen(
 
         // ── Updates ──────────────────────────────────────────────────────────
         SettingsSection("Updates") {
+            val channel = UpdateChannel.fromKey(settings.updateChannel)
+
+            SettingsRow(
+                label    = "Release channel",
+                sublabel = "dev = integration builds · main = stable builds",
+                icon     = Icons.Default.SystemUpdate
+            ) {
+                Row {
+                    UpdateChannel.entries.forEachIndexed { index, ch ->
+                        if (index > 0) Spacer(Modifier.width(6.dp))
+                        FilterChip(
+                            selected = channel == ch,
+                            onClick  = { onSetUpdateChannel(ch) },
+                            label    = { Text(ch.label, fontSize = 11.sp) },
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = accent,
+                                selectedLabelColor     = Color.Black
+                            )
+                        )
+                    }
+                }
+            }
+
+            when (val st = updateState) {
+                UpdateUiState.Idle -> SettingsButton(
+                    label    = "Check for Updates",
+                    sublabel = "$UPDATE_REPO · channel ${channel.label}",
+                    icon     = Icons.Default.Refresh,
+                    accent   = accent,
+                    onClick  = { onCheckUpdates() }
+                )
+
+                UpdateUiState.Checking -> SettingsRow(
+                    label    = "Checking…",
+                    sublabel = "Asking GitHub for the latest ${channel.label} build",
+                    icon     = Icons.Default.Refresh
+                ) {}
+
+                is UpdateUiState.UpToDate -> SettingsRow(
+                    label    = "Up to date",
+                    sublabel = "v${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_SHA}) matches ${channel.releaseTag}" +
+                        (st.remote.versionName?.let { " · remote v$it" } ?: ""),
+                    icon     = Icons.Default.Done
+                ) {}
+
+                is UpdateUiState.UpdateAvailable -> {
+                    SettingsRow(
+                        label    = "Update available",
+                        sublabel = (st.remote.versionName?.let { "v$it" } ?: "new build") +
+                            " from ${channel.label}" +
+                            (if (st.remote.sizeBytes > 0) " · ${st.remote.sizeBytes / (1024 * 1024)} MB" else "") +
+                            " · " + when (st.reason) {
+                                UpdateReason.NEWER_VERSION          -> "newer version"
+                                UpdateReason.SAME_VERSION_NEW_BUILD -> "same version, newer build"
+                                UpdateReason.UNKNOWN_VERSION        -> "remote version marker missing"
+                            },
+                        icon     = Icons.Default.ArrowDownward
+                    ) {}
+                    SettingsButton(
+                        label    = "Download & Install",
+                        sublabel = "Installer opens automatically when the download finishes",
+                        icon     = Icons.Default.Download,
+                        accent   = accent,
+                        onClick  = { onDownloadUpdate() }
+                    )
+                }
+
+                is UpdateUiState.Downloading -> {
+                    SettingsRow(
+                        label    = "Downloading…",
+                        sublabel = if (st.percent > 0) "${st.percent}%" else "starting",
+                        icon     = Icons.Default.Download
+                    ) {}
+                    LinearProgressIndicator(
+                        progress = st.percent / 100f,
+                        color    = accent,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    )
+                }
+
+                is UpdateUiState.ReadyToInstall -> SettingsButton(
+                    label    = "Install",
+                    sublabel = "APK downloaded — tap to open the installer again",
+                    icon     = Icons.Default.GetApp,
+                    accent   = accent,
+                    onClick  = { onInstallUpdate() }
+                )
+
+                UpdateUiState.NeedsInstallPermission -> {
+                    SettingsRow(
+                        label    = "Install permission needed",
+                        sublabel = "Allow “install unknown apps” for Open Launcher, then tap Download again",
+                        icon     = Icons.Default.Lock
+                    ) {}
+                    SettingsButton(
+                        label    = "Open permission page",
+                        sublabel = "Android settings · unknown-apps installer grant",
+                        icon     = Icons.Default.Settings,
+                        accent   = accent,
+                        onClick  = {
+                            runCatching { context.startActivity(ApkDownloader.requestInstallPermissionIntent(context)) }
+                        }
+                    )
+                }
+
+                is UpdateUiState.Failed -> SettingsRow(
+                    label    = "Update failed",
+                    sublabel = st.message,
+                    icon     = Icons.Default.Warning
+                ) {}
+            }
+
             SettingsButton(
-                label    = "Check for Updates",
-                sublabel = "View releases on GitHub",
-                icon     = Icons.Default.SystemUpdate,
+                label    = "All releases on GitHub",
+                sublabel = "Open release list in browser",
+                icon     = Icons.Default.OpenInNew,
                 accent   = accent,
                 onClick  = {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/dw2lam/openlauncher/releases"))
-                    context.startActivity(intent)
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/$UPDATE_REPO/releases"))
+                    runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 }
             )
         }
@@ -856,7 +979,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(32.dp))
 
         Text(
-            text          = "v0.0.5  ·  Made by David Lam  ·  2026",
+            text          = "v${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_SHA})  ·  Made by David Lam  ·  2026",
             color         = if (isDayMode) Color(0xFFAAAAAA) else Color(0xFF2A2A2A),
             fontSize      = 10.sp,
             letterSpacing = 1.sp,

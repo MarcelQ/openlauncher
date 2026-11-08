@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+/** Short git sha baked into BuildConfig.GIT_SHA so the in-app updater can tell two
+ *  builds with the same versionCode apart. Falls back to "unknown" off a git tree. */
+fun gitShortSha(): String = runCatching {
+    val p = ProcessBuilder("git", "rev-parse", "--short", "HEAD")
+        .directory(File(projectDir.absolutePath))
+        .redirectErrorStream(true)
+        .start()
+    val out = p.inputStream.bufferedReader().readText().trim()
+    if (p.waitFor() == 0 && out.matches(Regex("[0-9a-fA-F]{7,40}"))) out else "unknown"
+}.getOrDefault("unknown")
+
 android {
     namespace  = "com.openlauncher.app"
     compileSdk {
@@ -15,6 +26,7 @@ android {
         targetSdk      = 36
         versionCode    = 6
         versionName    = "0.0.5"
+        buildConfigField("String", "GIT_SHA", "\"${gitShortSha()}\"")
     }
 
     buildTypes {
@@ -37,7 +49,17 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true   // BuildConfig.VERSION_CODE/VERSION_NAME/GIT_SHA for the updater
     }
+}
+
+// CI embeds this line into the rolling-release NOTES so the in-app updater can
+// compare remote versionCode/commit against its own BuildConfig (UpdateChecker.kt).
+val verCode = android.defaultConfig.versionCode ?: 0
+val verName = android.defaultConfig.versionName ?: "0"
+tasks.register("printVersionInfo") {
+    description = "prints `versionCode=N versionName=X` for the release-notes marker"
+    doLast { println("versionCode=$verCode versionName=$verName") }
 }
 
 dependencies {

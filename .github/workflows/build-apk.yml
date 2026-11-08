@@ -63,12 +63,17 @@ jobs:
           if [ "$GITHUB_REF" = "refs/heads/dev" ]; then
             TAG=dev-latest
             ASSET=openlauncher-dev-debug.apk
-            NOTES="Rolling debug build of the integration branch \`dev\` at the current tip. Debug-signed, bench testing only. Installing this makes OpenLauncher a HOME candidate on the head unit; revert with \`adb shell cmd package set-home-activity <previous launcher>\`."
+            DESC='Rolling debug build of the integration branch `dev` at the current tip. Debug-signed, bench testing only. Installing this makes OpenLauncher a HOME candidate on the head unit; revert with `adb shell cmd package set-home-activity <previous launcher>`.'
           else
             TAG=main-latest
             ASSET=openlauncher-main-debug.apk
-            NOTES="Debug-signed build of the stable branch \`main\` at the current tip. Debug-signed, bench testing only. Installing this makes OpenLauncher a HOME candidate on the head unit; revert with \`adb shell cmd package set-home-activity <previous launcher>\`."
+            DESC='Debug-signed build of the stable branch `main` at the current tip. Debug-signed, bench testing only. Installing this makes OpenLauncher a HOME candidate on the head unit; revert with `adb shell cmd package set-home-activity <previous launcher>`.'
           fi
+          # Version marker the in-app updater parses (UpdateChecker.kt). Keep the
+          # `versionCode=N versionName=X commit=<sha>` line format in sync with it.
+          VER_LINE=$(./gradlew -q printVersionInfo)
+          NOTES="$DESC
+$VER_LINE commit=$GITHUB_SHA"
           cp app/build/outputs/apk/debug/app-debug.apk "$ASSET"
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "$TAG (rolling)" --notes "$NOTES"

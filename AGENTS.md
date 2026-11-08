@@ -40,3 +40,12 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   `https://github.com/MarcelQ/openlauncher/releases/download/dev-latest/openlauncher-dev-debug.apk`
 - Installing a debug APK makes the app a HOME candidate on the head unit; if that is not wanted,
   revert with `adb shell cmd package set-home-activity <previous launcher>`.
+- **In-app updater** (Settings ▸ Updates, `data\UpdateChecker.kt` + `data\ApkDownloader.kt`): polls
+  `api.github.com/repos/MarcelQ/openlauncher/releases/tags/<dev-latest|main-latest>` and offers the
+  channel's APK (user picks dev or main; debug builds default to dev). Requires the CI release NOTES
+  to carry the marker line `versionCode=N versionName=X commit=<sha>` — produced by the
+  `:app:printVersionInfo` Gradle task inside `build-apk.yml`. **If the workflow's notes step or the
+  regex in `UpdateChecker.kt` change, keep both in sync** (decision logic: `UpdateCheckerTest.kt`).
+  The app's own build is identified by `BuildConfig.GIT_SHA` (auto via `git rev-parse` at
+  configuration time; "unknown" off git). Downloads need `REQUEST_INSTALL_PACKAGES` (user must also
+  allow "install unknown apps" on API 23+).

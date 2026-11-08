@@ -35,6 +35,11 @@
     <!-- Query all packages required on API 30+ for getInstalledApplications -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!-- In-app updater (Settings ▸ Updates): needed to launch the package installer for
+         an APK downloaded from the MarcelQ/openlauncher rolling releases. On API 23+ the
+         user must additionally allow "install unknown apps" for this launcher. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- USB host (OTG) for the TPMS tyre-pressure receiver. required=false keeps the APK
          installable on head units that have no USB host at all — there TPMS simply stays
          unavailable. No uses-permission is needed: USB access is granted per device by the
@@ -87,6 +92,18 @@
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/usb_device_filter" />
         </activity>
+
+        <!-- FileProvider for the in-app updater: hands the downloaded APK to the
+             package installer without exposing file:// URIs (required API 24+). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Notification listener service for MediaSession / Now Playing -->
         <service

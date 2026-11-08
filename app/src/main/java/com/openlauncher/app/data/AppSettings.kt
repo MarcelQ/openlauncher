@@ -2,6 +2,7 @@ package com.openlauncher.app.data
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import com.openlauncher.app.BuildConfig
 import com.openlauncher.app.tpms.PressureUnit
 
 enum class ClockStyle { DIGITAL, ANALOG }
@@ -106,7 +107,11 @@ data class AppSettings(
     val vitalsAsBars: Boolean = false,
     val speedometerDigitalOnly: Boolean = false,
     val gradientDirection: GradientDirection = GradientDirection.DIAGONAL,
-    val useCustomBackgroundColor: Boolean = false
+    val useCustomBackgroundColor: Boolean = false,
+    // ── Updates (GitHub rolling releases) ────────────────────────────────────────
+    // "DEV" tracks dev-latest (integration builds), "STABLE" tracks main-latest.
+    // Debug APKs default to the dev channel, release APKs to main. See UpdateChecker.kt.
+    val updateChannel: String = if (BuildConfig.DEBUG) "DEV" else "STABLE"
 )
 
 fun defaultShortcuts() = listOf(
