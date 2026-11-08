@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -33,13 +37,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.ClockStyle
+import com.openlauncher.app.data.GridPage
+import com.openlauncher.app.data.MAX_COLS
+import com.openlauncher.app.data.MAX_PAGES
+import com.openlauncher.app.data.MAX_ROWS
+import com.openlauncher.app.data.MIN_COLS
+import com.openlauncher.app.data.MIN_ROWS
+import com.openlauncher.app.data.WidgetInstance
 import com.openlauncher.app.data.computeWidgetMove
-import com.openlauncher.app.data.GRID_COLS
-import com.openlauncher.app.data.GRID_ROWS
-import com.openlauncher.app.data.WidgetConfig
+import com.openlauncher.app.data.instancesOnPage
+import com.openlauncher.app.data.resizePageLayout
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.ui.theme.LocalDayMode
@@ -48,6 +59,11 @@ import java.util.Calendar
 import com.openlauncher.app.util.LocationData
 
 private val WIDGET_RADIUS = RoundedCornerShape(0.dp)
+
+// Card header labels (the small "VOLUME" caption) are hidden below this cell
+// height; VolumeWidget/BrightnessWidget switch to compact layouts around the
+// same size, so keep these thresholds roughly in sync.
+private val HEADER_LABEL_MIN_H = 90.dp
 
 private data class WidgetTypeInfo(
     val id: String,
@@ -71,33 +87,34 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("TPMS",        "TIRE PRESSURE", Icons.Default.Usb,         "Tyre pressure (USB receiver)")
 )
 
-private fun canAddWidget(settings: com.openlauncher.app.data.AppSettings): Boolean {
-    val visibleIds = buildSet {
-        if (settings.showClock) add("CLOCK")
-        if (settings.showWeather) add("WEATHER")
-        if (settings.showNowPlaying) add("NOW_PLAYING")
-        if (settings.showTelemetry) add("TELEMETRY")
-        if (settings.showAltimeter) add("ALTIMETER")
-        if (settings.showSpeedometer) add("SPEEDOMETER")
-        if (settings.showVitals) add("VITALS")
-        if (settings.showTripTracker) add("TRIP_TRACKER")
-        if (settings.showSoundboard) add("SOUNDBOARD")
-        if (settings.showVolume) add("VOLUME")
-        if (settings.showBrightness) add("BRIGHTNESS")
-        if (settings.showTpms) add("TPMS")
-    }
-    val activeWidgets = settings.widgetLayout.filter { it.enabled && it.id in visibleIds }
+/** True when a new 1×1 card could land on [pageIndex] — free cell, or room freed by shrinking. */
+private fun canAddOnPage(settings: AppSettings, pageIndex: Int): Boolean {
+    val dims = settings.pages.getOrNull(pageIndex) ?: return false
+    val onPage = settings.widgets.filter { it.page == pageIndex }
     val occupied = buildSet<Pair<Int, Int>> {
-        activeWidgets.forEach { w ->
+        onPage.forEach { w ->
             for (dx in 0 until w.spanX) for (dy in 0 until w.spanY) add(w.gridX + dx to w.gridY + dy)
         }
     }
-    val hasFreeCell = (0 until com.openlauncher.app.data.GRID_ROWS).any { r ->
-        (0 until com.openlauncher.app.data.GRID_COLS).any { c -> (c to r) !in occupied }
+    val hasFreeCell = (0 until dims.rows).any { r ->
+        (0 until dims.cols).any { c -> (c to r) !in occupied }
     }
-    // Also true if any active widget spans >1 cell and can be shrunk to make room
-    val hasShrinkable = activeWidgets.any { it.spanX * it.spanY > 1 }
+    // Also true if any card on the page spans >1 cell and can be shrunk to make room
+    val hasShrinkable = onPage.any { it.spanX * it.spanY > 1 }
     return hasFreeCell || hasShrinkable
+}
+
+private fun cardLabel(type: String): String = when (type) {
+    "CLOCK"       -> "CLOCK"
+    "WEATHER"     -> "WEATHER"
+    "NOW_PLAYING" -> "NOW PLAYING"
+    "TELEMETRY"   -> "COMPASS"
+    "ALTIMETER"   -> "ALTIMETER"
+    "SPEEDOMETER" -> "SPEED"
+    "TRIP_TRACKER" -> "TRIP"
+    "SOUNDBOARD"  -> "SOUND"
+    "TPMS"        -> "TIRE PRESSURE"
+    else          -> type
 }
 
 @Composable
@@ -125,8 +142,12 @@ fun HomeScreen(
     onTapNowPlaying: () -> Unit,
     onUpdateWidget: (id: String, spanX: Int, spanY: Int) -> Unit,
     onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
-    onAddWidget: (id: String) -> Unit,
+    onAddWidget: (type: String, page: Int) -> Unit,
     onRemoveWidget: (id: String) -> Unit,
+    onMoveWidgetToPage: (id: String, page: Int) -> Unit,
+    onAddPage: () -> Unit,
+    onRemovePage: (page: Int) -> Unit,
+    onSetPageSize: (page: Int, cols: Int, rows: Int) -> Unit,
     onSetClockStyle: (ClockStyle) -> Unit,
     onSetVitalsAsBars: (Boolean) -> Unit = {},
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit = {},
@@ -163,13 +184,19 @@ fun HomeScreen(
     val statusIconColor   = if (isDayMode) Color(0xFF444444) else Color(0xFF666666)
     val controlIconColor  = if (isDayMode) Color(0xFF666666) else Color(0xFF444444)
 
-    var resizingId    by remember { mutableStateOf<String?>(null) }
     var contextMenuId by remember { mutableStateOf<String?>(null) }
+    var resizingId    by remember { mutableStateOf<String?>(null) }
 
     val configuration    = LocalConfiguration.current
     val isLandscape      = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     var editMode         by remember { mutableStateOf(false) }
     var widgetLibraryOpen by remember { mutableStateOf(false) }
+    var gridDialogPage  by remember { mutableStateOf<Int?>(null) }
+
+    // Swipeable home screens. pageCount is a lambda so the pager follows
+    // pages added/removed in edit mode without recreating pager state.
+    val pagerState = rememberPagerState(pageCount = { settings.pages.size.coerceAtLeast(1) })
+    val currentPage = pagerState.currentPage.coerceIn(0, settings.pages.size - 1)
 
     Column(modifier = modifier.fillMaxSize()) {
 
@@ -228,305 +255,475 @@ fun HomeScreen(
 
         HorizontalDivider(color = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF141414))
 
-        // ── Widget Grid ─────────────────────────────────────────────────────
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(gap)
-        ) {
-            val cellW = (maxWidth  - gap * (GRID_COLS - 1)) / GRID_COLS
-            val cellH = (maxHeight - gap * (GRID_ROWS - 1)) / GRID_ROWS
-            val density = LocalDensity.current
-            val cellStepXPx = with(density) { (cellW + gap).toPx() }
-            val cellStepYPx = with(density) { (cellH + gap).toPx() }
-
-            // WEATHER stays in the set even with no data: the commit path
-            // (LauncherViewModel.moveWidgetConfig) computes against settings flags
-            // only, so dropping it here would make the drop ghost and the committed
-            // layout disagree. With no data the cell renders fully transparent.
-            val visibleIds = buildSet {
-                if (settings.showClock) add("CLOCK")
-                if (settings.showWeather) add("WEATHER")
-                if (settings.showNowPlaying) add("NOW_PLAYING")
-                if (settings.showTelemetry) add("TELEMETRY")
-                if (settings.showAltimeter) add("ALTIMETER")
-                if (settings.showSpeedometer) add("SPEEDOMETER")
-                if (settings.showVitals) add("VITALS")
-                if (settings.showTripTracker) add("TRIP_TRACKER")
-                if (settings.showSoundboard) add("SOUNDBOARD")
-                if (settings.showVolume) add("VOLUME")
-                if (settings.showBrightness) add("BRIGHTNESS")
-                if (settings.showTpms) add("TPMS")
-            }
-
-            // Keep only visible widgets exactly as configured in settings, allowing explicit resizing to dictate layout
-            val visible = settings.widgetLayout.filter { it.enabled && it.id in visibleIds }
-            val rendered = visible
-
-            // ── Drag state ───────────────────────────────────────────────────
-            var draggingId   by remember { mutableStateOf<String?>(null) }
-            var dragOffsetPx by remember { mutableStateOf(Offset.Zero) }
-
-            // Compute snap target for the widget being dragged (uses original spanX)
-            val draggingOriginal = if (draggingId != null) visible.find { it.id == draggingId } else null
-            val targetGridX = draggingOriginal?.let {
-                (it.gridX + (dragOffsetPx.x / cellStepXPx).roundToInt()).coerceIn(0, GRID_COLS - it.spanX)
-            }
-            val targetGridY = draggingOriginal?.let {
-                (it.gridY + (dragOffsetPx.y / cellStepYPx).roundToInt()).coerceIn(0, GRID_ROWS - it.spanY)
-            }
-
-            // Compute proposed layout (push preview) while dragging
-            val proposedLayout = if (draggingOriginal != null && targetGridX != null && targetGridY != null)
-                computeWidgetMove(visible, draggingOriginal.id, targetGridX, targetGridY)
-            else null
-
-            // Drop ghost — rendered before widgets so it appears beneath them
-            if (draggingOriginal != null && targetGridX != null && targetGridY != null) {
-                val gX = (cellW + gap) * targetGridX
-                val gY = (cellH + gap) * targetGridY
-                val gW = cellW * draggingOriginal.spanX + gap * (draggingOriginal.spanX - 1)
-                val gH = cellH * draggingOriginal.spanY + gap * (draggingOriginal.spanY - 1)
-                Box(
-                    modifier = Modifier
-                        .absoluteOffset(x = gX, y = gY)
-                        .size(gW, gH)
-                        .background(accent.copy(alpha = 0.08f))
-                        .border(1.dp, accent.copy(alpha = 0.5f), WIDGET_RADIUS)
+        // ── Paged widget grids ──────────────────────────────────────────────
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            HorizontalPager(
+                state    = pagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { pageIndex ->
+                val page = settings.pages.getOrElse(pageIndex) { GridPage() }
+                WidgetPageGrid(
+                    settings      = settings,
+                    pageIndex     = pageIndex,
+                    page          = page,
+                    gap           = gap,
+                    accent        = accent,
+                    widgetBg      = widgetBg,
+                    widgetBorder  = widgetBorder,
+                    isDayMode     = isDayMode,
+                    editMode      = editMode,
+                    weather       = weather,
+                    nowPlaying    = nowPlaying,
+                    location      = location,
+                    bearing       = bearing,
+                    tpms          = tpms,
+                    hardwareRadio = hardwareRadio,
+                    onMoveWidget  = onMoveWidget,
+                    onOpenMenu    = { contextMenuId = it },
+                    onPlayPause   = onPlayPause,
+                    onNext        = onNext,
+                    onPrev        = onPrev,
+                    onLaunchCarPlay     = onLaunchCarPlay,
+                    onLaunchAndroidAuto = onLaunchAndroidAuto,
+                    onTapNowPlaying     = onTapNowPlaying,
+                    onLaunchHardwareRadio = onLaunchHardwareRadio,
+                    onStopHardwareRadio   = onStopHardwareRadio,
+                    onRadioSeekUp         = onRadioSeekUp,
+                    onRadioSeekDown       = onRadioSeekDown,
+                    onRadioCycleFm        = onRadioCycleFm,
+                    onRadioSwitchAm       = onRadioSwitchAm,
+                    onRadioTune           = onRadioTune,
+                    onAssignRadio         = onAssignRadio,
+                    onTpmsConnect         = onTpmsConnect,
+                    onLaunchPip           = onLaunchPip,
+                    onUpdateSoundPad      = onUpdateSoundPad
                 )
             }
 
-            // Displacement ghosts — show where pushed widgets will land
-            if (proposedLayout != null && draggingOriginal != null) {
-                proposedLayout
-                    .filter { it.id != draggingOriginal.id }
-                    .forEach { proposed ->
-                        val original = visible.find { it.id == proposed.id } ?: return@forEach
-                        if (proposed.gridX != original.gridX || proposed.gridY != original.gridY) {
-                            val dX = (cellW + gap) * proposed.gridX
-                            val dY = (cellH + gap) * proposed.gridY
-                            val dW = cellW * proposed.spanX + gap * (proposed.spanX - 1)
-                            val dH = cellH * proposed.spanY + gap * (proposed.spanY - 1)
-                            Box(
-                                modifier = Modifier
-                                    .absoluteOffset(x = dX, y = dY)
-                                    .size(dW, dH)
-                                    .border(1.dp, Color.White.copy(alpha = 0.25f), WIDGET_RADIUS)
-                            )
-                        }
-                    }
+            // Page dots + edit-mode page/grid controls, floating bottom-center
+            if (settings.pages.size > 1 || editMode) {
+                PageIndicatorBar(
+                    modifier     = Modifier.align(Alignment.BottomCenter),
+                    pagerState   = pagerState,
+                    currentPage  = currentPage,
+                    pages        = settings.pages,
+                    widgets      = settings.widgets,
+                    editMode     = editMode,
+                    accent       = accent,
+                    isDayMode    = isDayMode,
+                    onAddPage    = onAddPage,
+                    onRemovePage = onRemovePage,
+                    onGridDialog = { gridDialogPage = currentPage }
+                )
             }
+        }
+    }
 
-            rendered.forEach { w ->
-                val xOff   = (cellW + gap) * w.gridX
-                val yOff   = (cellH + gap) * w.gridY
-                val width  = cellW * w.spanX + gap * (w.spanX - 1)
-                val height = cellH * w.spanY + gap * (w.spanY - 1)
+    // ── Widget context menu (long-press any card) ────────────────────────────
+    contextMenuId?.let { id ->
+        val instance = settings.widgets.find { it.id == id }
+        if (instance == null) {
+            contextMenuId = null
+        } else {
+            WidgetContextMenu(
+                widgetId            = instance.id,
+                widgetType          = instance.type,
+                pageIndex           = instance.page.coerceIn(0, settings.pages.size - 1),
+                pages               = settings.pages,
+                accent              = accent,
+                clockStyle          = settings.clockStyle,
+                vitalsAsBars        = settings.vitalsAsBars,
+                speedometerDigitalOnly = settings.speedometerDigitalOnly,
+                carPlayPackage      = settings.carPlayPackage,
+                androidAutoPackage  = settings.androidAutoPackage,
+                pipAppPackage       = settings.pipAppPackage,
+                isDayMode           = isDayMode,
+                onResize            = { contextMenuId = null; resizingId = id },
+                onRemove            = { contextMenuId = null; onRemoveWidget(id) },
+                onMoveToPage        = { p -> contextMenuId = null; onMoveWidgetToPage(id, p) },
+                onAssignCarPlay     = { contextMenuId = null; onAssignCarPlay() },
+                onAssignAndroidAuto = { contextMenuId = null; onAssignAndroidAuto() },
+                onClearCarPlay      = { contextMenuId = null; onClearCarPlay() },
+                onClearAndroidAuto  = { contextMenuId = null; onClearAndroidAuto() },
+                onAssignPip         = { contextMenuId = null; onAssignPip() },
+                onClearPip          = { contextMenuId = null; onClearPip() },
+                onSetClockStyle     = { onSetClockStyle(it) },
+                onSetVitalsAsBars   = { onSetVitalsAsBars(it) },
+                onSetSpeedometerDigitalOnly = { onSetSpeedometerDigitalOnly(it) },
+                onTpmsConnect          = { contextMenuId = null; onTpmsConnect() },
+                brightnessAuto           = settings.brightnessAuto,
+                brightnessHighPct        = settings.brightnessHighPct,
+                brightnessMediumPct      = settings.brightnessMediumPct,
+                brightnessLowPct         = settings.brightnessLowPct,
+                onSetBrightnessAuto      = { onSetBrightnessAuto(it) },
+                onSetBrightnessLevel     = { slot, pct -> onSetBrightnessLevel(slot, pct) },
+                onDismiss           = { contextMenuId = null }
+            )
+        }
+    }
 
-                val label = when (w.id) {
-                    "CLOCK"       -> clockTimeLabel(Calendar.getInstance())
-                    "WEATHER"     -> "WEATHER"
-                    "NOW_PLAYING" -> "NOW PLAYING"
-                    "TELEMETRY"   -> "COMPASS"
-                    "ALTIMETER"   -> "ALTIMETER"
-                    "SPEEDOMETER" -> "SPEED"
-                    "TRIP_TRACKER" -> "TRIP"
-                    "SOUNDBOARD"  -> "SOUND"
-                    "TPMS"        -> "TIRE PRESSURE"
-                    else          -> w.id
+    // ── Resize dialog ────────────────────────────────────────────────────────
+    resizingId?.let { id ->
+        val config = settings.widgets.find { it.id == id }
+        if (config != null) {
+            WidgetResizeDialog(
+                config    = config,
+                page      = settings.pages.getOrElse(config.page) { GridPage() },
+                accent    = accent,
+                isDayMode = isDayMode,
+                onDismiss = { resizingId = null },
+                onConfirm = { sx, sy ->
+                    onUpdateWidget(id, sx, sy)
+                    resizingId = null
+                }
+            )
+        }
+    }
+
+    // ── Per-page grid size dialog ────────────────────────────────────────────
+    gridDialogPage?.let { pageIndex ->
+        val page = settings.pages.getOrNull(pageIndex)
+        if (page == null) {
+            gridDialogPage = null
+        } else {
+            GridSizeDialog(
+                pageIndex = pageIndex,
+                page      = page,
+                onPage    = instancesOnPage(settings.widgets, pageIndex),
+                accent    = accent,
+                isDayMode = isDayMode,
+                onDismiss = { gridDialogPage = null },
+                onConfirm = { cols, rows ->
+                    onSetPageSize(pageIndex, cols, rows)
+                    gridDialogPage = null
+                }
+            )
+        }
+    }
+
+    // ── Widget library (adds to the page you are currently looking at) ───────
+    if (widgetLibraryOpen) {
+        WidgetLibraryDialog(
+            settings   = settings,
+            pageIndex  = currentPage,
+            accent     = accent,
+            isDayMode  = isDayMode,
+            onAdd      = { type -> onAddWidget(type, currentPage) },
+            onDismiss  = { widgetLibraryOpen = false }
+        )
+    }
+}
+
+// ── One page's widget grid ───────────────────────────────────────────────────
+
+@Composable
+private fun WidgetPageGrid(
+    settings: AppSettings,
+    pageIndex: Int,
+    page: GridPage,
+    gap: androidx.compose.ui.unit.Dp,
+    accent: Color,
+    widgetBg: Color,
+    widgetBorder: Color,
+    isDayMode: Boolean,
+    editMode: Boolean,
+    weather: WeatherState?,
+    nowPlaying: NowPlayingState?,
+    location: LocationData?,
+    bearing: Float,
+    tpms: com.openlauncher.app.tpms.TpmsSnapshot,
+    hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState?,
+    onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
+    onOpenMenu: (id: String) -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onPrev: () -> Unit,
+    onLaunchCarPlay: () -> Unit,
+    onLaunchAndroidAuto: () -> Unit,
+    onTapNowPlaying: () -> Unit,
+    onLaunchHardwareRadio: () -> Unit,
+    onStopHardwareRadio: () -> Unit,
+    onRadioSeekUp: () -> Unit,
+    onRadioSeekDown: () -> Unit,
+    onRadioCycleFm: () -> Unit,
+    onRadioSwitchAm: () -> Unit,
+    onRadioTune: (band: String, freq: Float) -> Unit,
+    onAssignRadio: () -> Unit,
+    onTpmsConnect: () -> Unit,
+    onLaunchPip: () -> Unit,
+    onUpdateSoundPad: (index: Int, pad: com.openlauncher.app.data.SoundPadConfig) -> Unit
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(gap)
+    ) {
+        val cellW = (maxWidth  - gap * (page.cols - 1)) / page.cols
+        val cellH = (maxHeight - gap * (page.rows - 1)) / page.rows
+        val density = LocalDensity.current
+        val cellStepXPx = with(density) { (cellW + gap).toPx() }
+        val cellStepYPx = with(density) { (cellH + gap).toPx() }
+
+        // WEATHER stays in the set even with no data: the commit path
+        // (LauncherViewModel.moveWidgetConfig) computes against saved instances
+        // only, so dropping it here would make the drop ghost and the committed
+        // layout disagree. With no data the cell renders fully transparent.
+        val visible = instancesOnPage(settings.widgets, pageIndex)
+
+        // ── Drag state ───────────────────────────────────────────────────
+        var draggingId   by remember { mutableStateOf<String?>(null) }
+        var dragOffsetPx by remember { mutableStateOf(Offset.Zero) }
+
+        // Compute snap target for the widget being dragged (uses original spanX)
+        val draggingOriginal = if (draggingId != null) visible.find { it.id == draggingId } else null
+        val targetGridX = draggingOriginal?.let {
+            (it.gridX + (dragOffsetPx.x / cellStepXPx).roundToInt()).coerceIn(0, page.cols - it.spanX)
+        }
+        val targetGridY = draggingOriginal?.let {
+            (it.gridY + (dragOffsetPx.y / cellStepYPx).roundToInt()).coerceIn(0, page.rows - it.spanY)
+        }
+
+        // Compute proposed layout (push preview) while dragging
+        val proposedLayout = if (draggingOriginal != null && targetGridX != null && targetGridY != null)
+            computeWidgetMove(visible, draggingOriginal.id, targetGridX, targetGridY, page.cols, page.rows)
+        else null
+
+        // Drop ghost — rendered before widgets so it appears beneath them
+        if (draggingOriginal != null && targetGridX != null && targetGridY != null) {
+            val gX = (cellW + gap) * targetGridX
+            val gY = (cellH + gap) * targetGridY
+            val gW = cellW * draggingOriginal.spanX + gap * (draggingOriginal.spanX - 1)
+            val gH = cellH * draggingOriginal.spanY + gap * (draggingOriginal.spanY - 1)
+            Box(
+                modifier = Modifier
+                    .absoluteOffset(x = gX, y = gY)
+                    .size(gW, gH)
+                    .background(accent.copy(alpha = 0.08f))
+                    .border(1.dp, accent.copy(alpha = 0.5f), WIDGET_RADIUS)
+            )
+        }
+
+        // Displacement ghosts — show where pushed widgets will land
+        if (proposedLayout != null && draggingOriginal != null) {
+            proposedLayout
+                .filter { it.id != draggingOriginal.id }
+                .forEach { proposed ->
+                    val original = visible.find { it.id == proposed.id } ?: return@forEach
+                    if (proposed.gridX != original.gridX || proposed.gridY != original.gridY) {
+                        val dX = (cellW + gap) * proposed.gridX
+                        val dY = (cellH + gap) * proposed.gridY
+                        val dW = cellW * proposed.spanX + gap * (proposed.spanX - 1)
+                        val dH = cellH * proposed.spanY + gap * (proposed.spanY - 1)
+                        Box(
+                            modifier = Modifier
+                                .absoluteOffset(x = dX, y = dY)
+                                .size(dW, dH)
+                                .border(1.dp, Color.White.copy(alpha = 0.25f), WIDGET_RADIUS)
+                        )
+                    }
+                }
+        }
+
+        visible.forEach { w ->
+            val xOff   = (cellW + gap) * w.gridX
+            val yOff   = (cellH + gap) * w.gridY
+            val width  = cellW * w.spanX + gap * (w.spanX - 1)
+            val height = cellH * w.spanY + gap * (w.spanY - 1)
+
+            val isDragging = draggingId == w.id
+            // Weather with no data reserves its cell but draws nothing
+            // (still visible in edit mode so it can be moved/removed)
+            val isGhost    = w.type == "WEATHER" && weather == null && !editMode
+            val dragDpX    = if (isDragging) with(density) { dragOffsetPx.x.toDp() } else 0.dp
+            val dragDpY    = if (isDragging) with(density) { dragOffsetPx.y.toDp() } else 0.dp
+
+            @OptIn(ExperimentalFoundationApi::class)
+            Box(
+                modifier = Modifier
+                    .absoluteOffset(x = xOff + dragDpX, y = yOff + dragDpY)
+                    .size(width, height)
+                    .zIndex(if (isDragging) 1f else 0f)
+                    .clip(WIDGET_RADIUS)
+                    .background(if (isGhost) Color.Transparent else widgetBg)
+                    .border(
+                        width = if (editMode) 1.5.dp else 1.dp,
+                        color = when {
+                            editMode -> accent.copy(alpha = 0.45f)
+                            isGhost  -> Color.Transparent
+                            else     -> widgetBorder
+                        },
+                        shape = WIDGET_RADIUS
+                    )
+                    .combinedClickable(
+                        indication        = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick           = { if (editMode) onOpenMenu(w.id) },
+                        onLongClick       = { if (!editMode) onOpenMenu(w.id) }
+                    )
+                    .then(
+                        if (editMode) Modifier.pointerInput(editMode, w.id, w.gridX, w.gridY) {
+                            var hasSignificantDrag = false
+                            // Touch-slop gate: without it, sub-pixel jitter during a
+                            // long-press counts as a drag and the context menu never opens
+                            val slop = viewConfiguration.touchSlop
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { _ ->
+                                    draggingId         = w.id
+                                    dragOffsetPx       = Offset.Zero
+                                    hasSignificantDrag = false
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    dragOffsetPx      += dragAmount
+                                    if (!hasSignificantDrag && dragOffsetPx.getDistance() > slop) {
+                                        hasSignificantDrag = true
+                                    }
+                                },
+                                onDragEnd = {
+                                    if (hasSignificantDrag) {
+                                        val newX = (w.gridX + (dragOffsetPx.x / cellStepXPx).roundToInt())
+                                            .coerceIn(0, page.cols - w.spanX)
+                                        val newY = (w.gridY + (dragOffsetPx.y / cellStepYPx).roundToInt())
+                                            .coerceIn(0, page.rows - w.spanY)
+                                        onMoveWidget(w.id, newX, newY)
+                                    } else {
+                                        onOpenMenu(w.id)
+                                    }
+                                    draggingId   = null
+                                    dragOffsetPx = Offset.Zero
+                                },
+                                onDragCancel = {
+                                    draggingId   = null
+                                    dragOffsetPx = Offset.Zero
+                                }
+                            )
+                        } else Modifier
+                    )
+            ) {
+                when (w.type) {
+                    "CLOCK" -> ClockWidget(
+                        style      = settings.clockStyle,
+                        accent     = accent,
+                        isDayMode  = isDayMode,
+                        modifier   = Modifier.fillMaxSize()
+                    )
+                    "WEATHER" -> WeatherWidget(
+                        state      = weather,
+                        accent     = accent,
+                        metric     = settings.unitSystem.name == "METRIC",
+                        isDayMode  = isDayMode,
+                        modifier   = Modifier.fillMaxSize()
+                    )
+                    "NOW_PLAYING" -> NowPlayingWidget(
+                        state               = nowPlaying,
+                        accent              = accent,
+                        carPlayPackage      = settings.carPlayPackage,
+                        androidAutoPackage  = settings.androidAutoPackage,
+                        onPlayPause         = onPlayPause,
+                        onNext              = onNext,
+                        onPrev              = onPrev,
+                        onLaunchCarPlay     = onLaunchCarPlay,
+                        onLaunchAndroidAuto = onLaunchAndroidAuto,
+                        onTapToOpenApp      = onTapNowPlaying,
+                        modifier            = Modifier.fillMaxSize(),
+                        isEditing           = editMode,
+                        isDayMode           = isDayMode,
+                        hardwareRadio         = hardwareRadio,
+                        onLaunchHardwareRadio = onLaunchHardwareRadio,
+                        onStopHardwareRadio   = onStopHardwareRadio,
+                        onRadioSeekUp         = onRadioSeekUp,
+                        onRadioSeekDown       = onRadioSeekDown,
+                        onRadioCycleFm        = onRadioCycleFm,
+                        onRadioSwitchAm       = onRadioSwitchAm,
+                        onRadioTune           = onRadioTune,
+                        onAssignRadio         = onAssignRadio
+                    )
+                    "TELEMETRY" -> TelemetryWidget(
+                        location  = location,
+                        bearing   = (bearing + settings.compassOffset + 360f) % 360f,
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        modifier  = Modifier.fillMaxSize()
+                    )
+                    "ALTIMETER" -> AltimeterWidget(
+                        location  = location,
+                        isMetric  = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        modifier  = Modifier.fillMaxSize()
+                    )
+                    "SPEEDOMETER" -> SpeedometerWidget(
+                        location  = location,
+                        isMetric  = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        digitalOnly = settings.speedometerDigitalOnly,
+                        modifier  = Modifier.fillMaxSize()
+                    )
+                    "VITALS" -> VitalsWidget(
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        asBars    = settings.vitalsAsBars,
+                        modifier  = Modifier.fillMaxSize()
+                    )
+                    "TRIP_TRACKER" -> TripTrackerWidget(
+                        location  = location,
+                        isMetric  = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        modifier  = Modifier.fillMaxSize()
+                    )
+                    "SOUNDBOARD" -> SoundboardWidget(
+                        pads      = settings.soundboardPads,
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        isEditing = editMode,
+                        onUpdatePad = onUpdateSoundPad,
+                        modifier  = Modifier.fillMaxSize()
+                    )
+                    "VOLUME" -> VolumeWidget(
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        isEditing = editMode,
+                        modifier  = Modifier.fillMaxSize()
+                    )
+                    "BRIGHTNESS" -> BrightnessWidget(
+                        highPct   = settings.brightnessHighPct,
+                        mediumPct = settings.brightnessMediumPct,
+                        lowPct    = settings.brightnessLowPct,
+                        auto      = settings.brightnessAuto,
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        isEditing = editMode,
+                        modifier  = Modifier.fillMaxSize()
+                    )
+                    "TPMS" -> TpmsWidget(
+                        snapshot       = tpms,
+                        unit           = settings.tpmsPressureUnit,
+                        lowPressureKpa = settings.tpmsLowPressureKpa,
+                        accent         = accent,
+                        isMetric       = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
+                        isDayMode      = isDayMode,
+                        isEditing      = editMode,
+                        onConnect      = onTpmsConnect,
+                        modifier       = Modifier.fillMaxSize()
+                    )
                 }
 
-                // Original (pre-auto-expand) spanX needed for drag boundary clamping
-                val origSpanX  = visible.find { it.id == w.id }?.spanX ?: 1
-                val isDragging = draggingId == w.id
-                // Weather with no data reserves its cell but draws nothing
-                // (still visible in edit mode so it can be moved/removed)
-                val isGhost    = w.id == "WEATHER" && weather == null && !editMode
-                val dragDpX    = if (isDragging) with(density) { dragOffsetPx.x.toDp() } else 0.dp
-                val dragDpY    = if (isDragging) with(density) { dragOffsetPx.y.toDp() } else 0.dp
-
-                @OptIn(ExperimentalFoundationApi::class)
-                Box(
-                    modifier = Modifier
-                        .absoluteOffset(x = xOff + dragDpX, y = yOff + dragDpY)
-                        .size(width, height)
-                        .zIndex(if (isDragging) 1f else 0f)
-                        .clip(WIDGET_RADIUS)
-                        .background(if (isGhost) Color.Transparent else widgetBg)
-                        .border(
-                            width = if (editMode) 1.5.dp else 1.dp,
-                            color = when {
-                                editMode -> accent.copy(alpha = 0.45f)
-                                isGhost  -> Color.Transparent
-                                else     -> widgetBorder
-                            },
-                            shape = WIDGET_RADIUS
-                        )
-                        .combinedClickable(
-                            indication        = null,
-                            interactionSource = remember { MutableInteractionSource() },
-                            onClick           = { if (editMode) contextMenuId = w.id },
-                            onLongClick       = { if (!editMode) contextMenuId = w.id }
-                        )
-                        .then(
-                            if (editMode) Modifier.pointerInput(editMode, w.id, w.gridX, w.gridY) {
-                                var hasSignificantDrag = false
-                                // Touch-slop gate: without it, sub-pixel jitter during a
-                                // long-press counts as a drag and the context menu never opens
-                                val slop = viewConfiguration.touchSlop
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { _ ->
-                                        draggingId         = w.id
-                                        dragOffsetPx       = Offset.Zero
-                                        hasSignificantDrag = false
-                                    },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        dragOffsetPx      += dragAmount
-                                        if (!hasSignificantDrag && dragOffsetPx.getDistance() > slop) {
-                                            hasSignificantDrag = true
-                                        }
-                                    },
-                                    onDragEnd = {
-                                        if (hasSignificantDrag) {
-                                            val newX = (w.gridX + (dragOffsetPx.x / cellStepXPx).roundToInt())
-                                                .coerceIn(0, GRID_COLS - origSpanX)
-                                            val newY = (w.gridY + (dragOffsetPx.y / cellStepYPx).roundToInt())
-                                                .coerceIn(0, GRID_ROWS - w.spanY)
-                                            onMoveWidget(w.id, newX, newY)
-                                        } else {
-                                            contextMenuId = w.id
-                                        }
-                                        draggingId   = null
-                                        dragOffsetPx = Offset.Zero
-                                    },
-                                    onDragCancel = {
-                                        draggingId   = null
-                                        dragOffsetPx = Offset.Zero
-                                    }
-                                )
-                            } else Modifier
-                        )
-                ) {
-                    when (w.id) {
-                        "CLOCK" -> ClockWidget(
-                            style      = settings.clockStyle,
-                            accent     = accent,
-                            isDayMode  = isDayMode,
-                            modifier   = Modifier.fillMaxSize()
-                        )
-                        "WEATHER" -> WeatherWidget(
-                            state      = weather,
-                            accent     = accent,
-                            metric     = settings.unitSystem.name == "METRIC",
-                            isDayMode  = isDayMode,
-                            modifier   = Modifier.fillMaxSize()
-                        )
-                        "NOW_PLAYING" -> NowPlayingWidget(
-                            state               = nowPlaying,
-                            accent              = accent,
-                            carPlayPackage      = settings.carPlayPackage,
-                            androidAutoPackage  = settings.androidAutoPackage,
-                            onPlayPause         = onPlayPause,
-                            onNext              = onNext,
-                            onPrev              = onPrev,
-                            onLaunchCarPlay     = onLaunchCarPlay,
-                            onLaunchAndroidAuto = onLaunchAndroidAuto,
-                            onTapToOpenApp      = onTapNowPlaying,
-                            modifier            = Modifier.fillMaxSize(),
-                            isEditing           = editMode,
-                            isDayMode           = isDayMode,
-                            hardwareRadio         = hardwareRadio,
-                            onLaunchHardwareRadio = onLaunchHardwareRadio,
-                            onStopHardwareRadio   = onStopHardwareRadio,
-                            onRadioSeekUp         = onRadioSeekUp,
-                            onRadioSeekDown       = onRadioSeekDown,
-                            onRadioCycleFm        = onRadioCycleFm,
-                            onRadioSwitchAm       = onRadioSwitchAm,
-                            onRadioTune           = onRadioTune,
-                            onAssignRadio         = onAssignRadio
-                        )
-                        "TELEMETRY" -> TelemetryWidget(
-                            location  = location,
-                            bearing   = (bearing + settings.compassOffset + 360f) % 360f,
-                            accent    = accent,
-                            isDayMode = isDayMode,
-                            modifier  = Modifier.fillMaxSize()
-                        )
-                        "ALTIMETER" -> AltimeterWidget(
-                            location  = location,
-                            isMetric  = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
-                            accent    = accent,
-                            isDayMode = isDayMode,
-                            modifier  = Modifier.fillMaxSize()
-                        )
-                        "SPEEDOMETER" -> SpeedometerWidget(
-                            location  = location,
-                            isMetric  = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
-                            accent    = accent,
-                            isDayMode = isDayMode,
-                            digitalOnly = settings.speedometerDigitalOnly,
-                            modifier  = Modifier.fillMaxSize()
-                        )
-                        "VITALS" -> VitalsWidget(
-                            accent    = accent,
-                            isDayMode = isDayMode,
-                            asBars    = settings.vitalsAsBars,
-                            modifier  = Modifier.fillMaxSize()
-                        )
-                        "TRIP_TRACKER" -> TripTrackerWidget(
-                            location  = location,
-                            isMetric  = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
-                            accent    = accent,
-                            isDayMode = isDayMode,
-                            modifier  = Modifier.fillMaxSize()
-                        )
-                        "SOUNDBOARD" -> SoundboardWidget(
-                            pads      = settings.soundboardPads,
-                            accent    = accent,
-                            isDayMode = isDayMode,
-                            isEditing = editMode,
-                            onUpdatePad = onUpdateSoundPad,
-                            modifier  = Modifier.fillMaxSize()
-                        )
-                        "VOLUME" -> VolumeWidget(
-                            accent    = accent,
-                            isDayMode = isDayMode,
-                            isEditing = editMode,
-                            modifier  = Modifier.fillMaxSize()
-                        )
-                        "BRIGHTNESS" -> BrightnessWidget(
-                            highPct   = settings.brightnessHighPct,
-                            mediumPct = settings.brightnessMediumPct,
-                            lowPct    = settings.brightnessLowPct,
-                            auto      = settings.brightnessAuto,
-                            accent    = accent,
-                            isDayMode = isDayMode,
-                            isEditing = editMode,
-                            modifier  = Modifier.fillMaxSize()
-                        )
-                        "TPMS" -> TpmsWidget(
-                            snapshot       = tpms,
-                            unit           = settings.tpmsPressureUnit,
-                            lowPressureKpa = settings.tpmsLowPressureKpa,
-                            accent         = accent,
-                            isMetric       = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
-                            isDayMode      = isDayMode,
-                            isEditing      = editMode,
-                            onConnect      = onTpmsConnect,
-                            modifier       = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    // Label — hide when album art fills the widget background
+                // Label — hide when album art fills the widget background, and
+                // on dense grids where the cell is too short for the caption
+                val showLabel = height >= HEADER_LABEL_MIN_H && !(
+                    w.type == "NOW_PLAYING" && nowPlaying?.albumArt != null && nowPlaying.title.isNotEmpty()
+                )
+                if (showLabel) {
                     val labelColor = when {
                         isGhost -> Color.Transparent
-                        w.id == "NOW_PLAYING" && nowPlaying?.albumArt != null && nowPlaying.title.isNotEmpty() -> Color.Transparent
+                        w.type == "NOW_PLAYING" && nowPlaying?.albumArt != null && nowPlaying.title.isNotEmpty() -> Color.Transparent
                         isDayMode -> Color(0xFF999999)
                         else      -> Color(0xFF3A3A3A)
                     }
                     Text(
-                        text          = label,
+                        text          = cardLabel(w.type),
                         style         = MaterialTheme.typography.labelSmall,
                         color         = labelColor,
                         letterSpacing = 2.sp,
@@ -539,73 +736,196 @@ fun HomeScreen(
             }
         }
     }
+}
 
-    // ── Widget context menu (long-press any cell) ────────────────────────────
-    contextMenuId?.let { id ->
-        WidgetContextMenu(
-            widgetId            = id,
-            accent              = accent,
-            clockStyle          = settings.clockStyle,
-            vitalsAsBars        = settings.vitalsAsBars,
-            speedometerDigitalOnly = settings.speedometerDigitalOnly,
-            carPlayPackage      = settings.carPlayPackage,
-            androidAutoPackage  = settings.androidAutoPackage,
-            pipAppPackage       = settings.pipAppPackage,
-            isDayMode           = isDayMode,
-            onResize            = { contextMenuId = null; resizingId = id },
-            onAssignCarPlay     = { contextMenuId = null; onAssignCarPlay() },
-            onAssignAndroidAuto = { contextMenuId = null; onAssignAndroidAuto() },
-            onClearCarPlay      = { contextMenuId = null; onClearCarPlay() },
-            onClearAndroidAuto  = { contextMenuId = null; onClearAndroidAuto() },
-            onAssignPip         = { contextMenuId = null; onAssignPip() },
-            onClearPip          = { contextMenuId = null; onClearPip() },
-            onSetClockStyle     = { onSetClockStyle(it) },
-            onSetVitalsAsBars   = { onSetVitalsAsBars(it) },
-            onSetSpeedometerDigitalOnly = { onSetSpeedometerDigitalOnly(it) },
-            onTpmsConnect          = { contextMenuId = null; onTpmsConnect() },
-            brightnessAuto           = settings.brightnessAuto,
-            brightnessHighPct        = settings.brightnessHighPct,
-            brightnessMediumPct      = settings.brightnessMediumPct,
-            brightnessLowPct         = settings.brightnessLowPct,
-            onSetBrightnessAuto      = { onSetBrightnessAuto(it) },
-            onSetBrightnessLevel     = { slot, pct -> onSetBrightnessLevel(slot, pct) },
-            onDismiss           = { contextMenuId = null }
-        )
-    }
+// ── Page indicator + edit-mode page controls ─────────────────────────────────
 
-    // ── Resize dialog ────────────────────────────────────────────────────────
-    resizingId?.let { id ->
-        val config = settings.widgetLayout.find { it.id == id }
-        if (config != null) {
-            WidgetResizeDialog(
-                config    = config,
-                accent    = accent,
-                isDayMode = isDayMode,
-                onDismiss = { resizingId = null },
-                onConfirm = { sx, sy ->
-                    onUpdateWidget(id, sx, sy)
-                    resizingId = null
-                }
-            )
+@Composable
+private fun PageIndicatorBar(
+    modifier: Modifier = Modifier,
+    pagerState: PagerState,
+    currentPage: Int,
+    pages: List<GridPage>,
+    widgets: List<WidgetInstance>,
+    editMode: Boolean,
+    accent: Color,
+    isDayMode: Boolean,
+    onAddPage: () -> Unit,
+    onRemovePage: (Int) -> Unit,
+    onGridDialog: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val pageEmpty = instancesOnPage(widgets, currentPage).isEmpty()
+    val dimColor  = if (isDayMode) Color(0xFFADB5BD) else Color(0x66FFFFFF)
+
+    Column(
+        modifier = modifier.padding(bottom = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (editMode) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                val canRemove = pages.size > 1 && pageEmpty
+                PageChip(
+                    label   = "−",
+                    enabled = canRemove,
+                    accent  = accent,
+                    isDayMode = isDayMode,
+                    onClick = { onRemovePage(currentPage) }
+                )
+                val dims = pages.getOrElse(currentPage) { GridPage() }
+                PageChip(
+                    label   = "PAGE ${currentPage + 1} · ${dims.cols}×${dims.rows}",
+                    enabled = true,
+                    accent  = accent,
+                    isDayMode = isDayMode,
+                    onClick = onGridDialog
+                )
+                PageChip(
+                    label   = "+",
+                    enabled = pages.size < MAX_PAGES,
+                    accent  = accent,
+                    isDayMode = isDayMode,
+                    onClick = onAddPage
+                )
+            }
+            Spacer(Modifier.height(6.dp))
         }
-    }
-
-    // ── Widget library ────────────────────────────────────────────────────────
-    if (widgetLibraryOpen) {
-        WidgetLibraryDialog(
-            settings  = settings,
-            accent    = accent,
-            isDayMode = isDayMode,
-            onAdd     = { id -> onAddWidget(id) },
-            onRemove  = { id -> onRemoveWidget(id) },
-            onDismiss = { widgetLibraryOpen = false }
-        )
+        Row(
+            modifier          = Modifier.padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            repeat(pages.size) { i ->
+                val selected = i == currentPage
+                Box(
+                    modifier = Modifier
+                        .size(if (selected) 9.dp else 6.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) accent else dimColor)
+                        .clickable { scope.launch { pagerState.animateScrollToPage(i) } }
+                )
+            }
+        }
     }
 }
 
 @Composable
+private fun PageChip(
+    label: String,
+    enabled: Boolean,
+    accent: Color,
+    isDayMode: Boolean,
+    onClick: () -> Unit
+) {
+    val borderColor = if (enabled) accent.copy(alpha = 0.6f) else if (isDayMode) Color(0xFFCED4DA) else Color(0x33FFFFFF)
+    val textColor   = if (enabled) accent else if (isDayMode) Color(0xFFADB5BD) else Color(0x4DFFFFFF)
+    val chipBg      = if (isDayMode) Color(0xE6FFFFFF) else Color(0xB3000000)
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(3.dp))
+            .background(chipBg)
+            .border(1.dp, borderColor, RoundedCornerShape(3.dp))
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text          = label,
+            color         = textColor,
+            fontSize      = 9.sp,
+            letterSpacing = 1.sp,
+            fontFamily    = FontFamily.Monospace
+        )
+    }
+}
+
+// ── Per-page grid size dialog ────────────────────────────────────────────────
+
+@Composable
+private fun GridSizeDialog(
+    pageIndex: Int,
+    page: GridPage,
+    onPage: List<WidgetInstance>,
+    accent: Color,
+    isDayMode: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (cols: Int, rows: Int) -> Unit
+) {
+    var cols by remember(pageIndex) { mutableStateOf(page.cols) }
+    var rows by remember(pageIndex) { mutableStateOf(page.rows) }
+
+    val changed  = cols != page.cols || rows != page.rows
+    // Mirrors LauncherViewModel.setPageSize's guard: refuse rather than lose cards
+    val fits     = resizePageLayout(onPage, cols, rows) != null
+    val canApply = changed && fits
+
+    val dialogBg     = if (isDayMode) Color(0xFFFFFFFF) else MaterialTheme.colorScheme.background
+    val dialogText   = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
+    val cancelColor  = if (isDayMode) Color(0xFF6C757D) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text          = "GRID SIZE — PAGE ${pageIndex + 1}",
+                color         = dialogText,
+                fontSize      = 11.sp,
+                letterSpacing = 2.sp
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                SpanRow(label = "COLUMNS", value = cols, min = MIN_COLS, max = MAX_COLS, accent = accent, isDayMode = isDayMode) { cols = it }
+                SpanRow(label = "ROWS",    value = rows, min = MIN_ROWS, max = MAX_ROWS, accent = accent, isDayMode = isDayMode) { rows = it }
+                Text(
+                    text          = "$cols × $rows = ${cols * rows} CELLS",
+                    color         = if (isDayMode) Color(0xFF495057) else Color(0xFF666666),
+                    fontSize      = 9.sp,
+                    letterSpacing = 1.sp
+                )
+                if (changed && !fits) {
+                    Text(
+                        text          = "TOO SMALL — THE ${onPage.size} CARDS ON THIS PAGE WOULD NOT FIT. REMOVE OR MOVE SOME FIRST.",
+                        color         = if (isDayMode) Color(0xFFE03131) else Color(0xFFFA5252),
+                        fontSize      = 8.sp,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick  = { onConfirm(cols, rows) },
+                enabled  = canApply
+            ) {
+                Text("APPLY",
+                    color     = if (canApply) accent else (if (isDayMode) Color(0xFFADB5BD) else Color(0xFF333333)),
+                    fontSize  = 11.sp,
+                    letterSpacing = 1.sp
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CANCEL", color = cancelColor, fontSize = 11.sp, letterSpacing = 1.sp)
+            }
+        },
+        containerColor    = dialogBg,
+        titleContentColor = dialogText,
+        textContentColor  = dialogText
+    )
+}
+
+// ── Widget context menu (long-press any card) ────────────────────────────────
+
+@Composable
 private fun WidgetContextMenu(
     widgetId: String,
+    widgetType: String,
+    pageIndex: Int,
+    pages: List<GridPage>,
     accent: Color,
     clockStyle: ClockStyle,
     vitalsAsBars: Boolean,
@@ -615,6 +935,8 @@ private fun WidgetContextMenu(
     pipAppPackage: String = "",
     isDayMode: Boolean,
     onResize: () -> Unit,
+    onRemove: () -> Unit,
+    onMoveToPage: (Int) -> Unit,
     onAssignCarPlay: () -> Unit,
     onAssignAndroidAuto: () -> Unit,
     onClearCarPlay: () -> Unit,
@@ -647,7 +969,22 @@ private fun WidgetContextMenu(
         ) {
             val inactiveMenuTint = if (isDayMode) Color(0xFF777777) else Color(0xFF555555)
             ContextRow("RESIZE", Icons.Default.OpenWith, accent, onResize, isDayMode = isDayMode)
-            if (widgetId == "CLOCK") {
+            // Page moves — one row per other page (up to MAX_PAGES, so bounded)
+            if (pages.size > 1) {
+                pages.indices.filter { it != pageIndex }.forEach { target ->
+                    HorizontalDivider(color = menuDivider)
+                    ContextRow(
+                        label   = "MOVE TO PAGE ${target + 1}",
+                        icon    = Icons.Default.SwapHoriz,
+                        tint    = accent,
+                        onClick = { onMoveToPage(target) },
+                        isDayMode = isDayMode
+                    )
+                }
+            }
+            HorizontalDivider(color = menuDivider)
+            ContextRow("REMOVE", Icons.Default.Delete, Color(0xFF884444), onRemove, isDayMode = isDayMode)
+            if (widgetType == "CLOCK") {
                 HorizontalDivider(color = menuDivider)
                 ContextRow(
                     label   = "DIGITAL",
@@ -665,7 +1002,7 @@ private fun WidgetContextMenu(
                     isDayMode = isDayMode
                 )
             }
-            if (widgetId == "VITALS") {
+            if (widgetType == "VITALS") {
                 HorizontalDivider(color = menuDivider)
                 ContextRow(
                     label   = "DIAL GAUGES",
@@ -683,7 +1020,7 @@ private fun WidgetContextMenu(
                     isDayMode = isDayMode
                 )
             }
-            if (widgetId == "SPEEDOMETER") {
+            if (widgetType == "SPEEDOMETER") {
                 HorizontalDivider(color = menuDivider)
                 ContextRow(
                     label   = "DIAL TRACK",
@@ -701,7 +1038,7 @@ private fun WidgetContextMenu(
                     isDayMode = isDayMode
                 )
             }
-            if (widgetId == "TPMS") {
+            if (widgetType == "TPMS") {
                 HorizontalDivider(color = menuDivider)
                 ContextRow(
                     label     = "CONNECT USB RECEIVER",
@@ -711,7 +1048,7 @@ private fun WidgetContextMenu(
                     isDayMode = isDayMode
                 )
             }
-            if (widgetId == "BRIGHTNESS") {
+            if (widgetType == "BRIGHTNESS") {
                 HorizontalDivider(color = menuDivider)
                 ContextRow(
                     label     = if (brightnessAuto) "AUTO: SUN + WEATHER" else "AUTO: OFF",
@@ -728,7 +1065,7 @@ private fun WidgetContextMenu(
                 HorizontalDivider(color = menuDivider)
                 BrightnessLevelRow("LOW",  brightnessLowPct, accent, isDayMode) { onSetBrightnessLevel("LOW", it) }
             }
-            if (widgetId == "NOW_PLAYING") {
+            if (widgetType == "NOW_PLAYING") {
                 HorizontalDivider(color = menuDivider)
                 ContextRow("ASSIGN CARPLAY APP",      Icons.Default.PhoneAndroid,  accent, onAssignCarPlay, isDayMode = isDayMode)
                 if (carPlayPackage.isNotEmpty()) {
@@ -838,17 +1175,18 @@ private fun BrightnessLevelRow(
 
 @Composable
 private fun WidgetResizeDialog(
-    config: WidgetConfig,
+    config: WidgetInstance,
+    page: GridPage,
     accent: Color,
     isDayMode: Boolean,
     onDismiss: () -> Unit,
     onConfirm: (spanX: Int, spanY: Int) -> Unit
 ) {
-    var spanX by remember { mutableStateOf(config.spanX) }
-    var spanY by remember { mutableStateOf(config.spanY) }
+    var spanX by remember(config.id) { mutableStateOf(config.spanX) }
+    var spanY by remember(config.id) { mutableStateOf(config.spanY) }
 
-    val maxSpanX = GRID_COLS - config.gridX
-    val maxSpanY = GRID_ROWS - config.gridY
+    val maxSpanX = page.cols - config.gridX
+    val maxSpanY = page.rows - config.gridY
 
     val dialogBg     = if (isDayMode) Color(0xFFFFFFFF) else MaterialTheme.colorScheme.background
     val dialogText   = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
@@ -857,7 +1195,7 @@ private fun WidgetResizeDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text          = config.id.replace('_', ' '),
+                text          = config.type.replace('_', ' '),
                 color         = dialogText,
                 fontSize      = 11.sp,
                 letterSpacing = 2.sp
@@ -908,7 +1246,7 @@ private fun SpanRow(
             color         = dimColor,
             fontSize      = 10.sp,
             letterSpacing = 1.sp,
-            modifier      = Modifier.width(52.dp)
+            modifier      = Modifier.width(64.dp)
         )
         IconButton(
             onClick  = { if (value > min) onChange(value - 1) },
@@ -939,7 +1277,7 @@ private fun SpanRow(
         }
         Spacer(Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            repeat(max) { i ->
+            repeat(max.coerceAtMost(6)) { i ->
                 Box(
                     modifier = Modifier
                         .size(width = 14.dp, height = 10.dp)
@@ -958,10 +1296,10 @@ private fun SpanRow(
 @Composable
 private fun WidgetLibraryDialog(
     settings: AppSettings,
+    pageIndex: Int,
     accent: Color,
     isDayMode: Boolean,
     onAdd: (String) -> Unit,
-    onRemove: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val dialogBg    = if (isDayMode) Color(0xFFEEEEEE) else Color(0xFF0C0C0C)
@@ -969,21 +1307,8 @@ private fun WidgetLibraryDialog(
     val titleColor  = if (isDayMode) Color(0xFF495057) else Color(0xFF555555)
     val closeColor  = if (isDayMode) Color(0xFF495057) else Color(0xFF444444)
 
-    val activeIds = buildSet {
-        if (settings.showClock) add("CLOCK")
-        if (settings.showWeather) add("WEATHER")
-        if (settings.showNowPlaying) add("NOW_PLAYING")
-        if (settings.showTelemetry) add("TELEMETRY")
-        if (settings.showAltimeter) add("ALTIMETER")
-        if (settings.showSpeedometer) add("SPEEDOMETER")
-        if (settings.showVitals) add("VITALS")
-        if (settings.showTripTracker) add("TRIP_TRACKER")
-        if (settings.showSoundboard) add("SOUNDBOARD")
-        if (settings.showVolume) add("VOLUME")
-        if (settings.showBrightness) add("BRIGHTNESS")
-        if (settings.showTpms) add("TPMS")
-    }
-    val canAdd = canAddWidget(settings)
+    val dims   = settings.pages.getOrElse(pageIndex) { GridPage() }
+    val canAdd = canAddOnPage(settings, pageIndex)
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -999,7 +1324,7 @@ private fun WidgetLibraryDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text          = "WIDGET LIBRARY",
+                    text          = "WIDGET LIBRARY — PAGE ${pageIndex + 1} OF ${settings.pages.size} · ${dims.cols}×${dims.rows}",
                     color         = titleColor,
                     fontSize      = 9.sp,
                     letterSpacing = 2.sp
@@ -1017,29 +1342,34 @@ private fun WidgetLibraryDialog(
                 modifier              = Modifier.fillMaxWidth()
             ) {
                 items(ALL_WIDGET_TYPES) { info ->
-                    val isActive = info.id in activeIds
+                    val count = settings.widgets.count { it.type == info.id }
                     WidgetLibraryCard(
-                        info     = info,
-                        isActive = isActive,
-                        canAdd   = canAdd,
-                        accent   = accent,
+                        info      = info,
+                        count     = count,
+                        canAdd    = canAdd,
+                        accent    = accent,
                         isDayMode = isDayMode,
-                        onToggle = { if (isActive) onRemove(info.id) else onAdd(info.id) }
+                        onAdd     = { onAdd(info.id) }
                     )
                 }
             }
 
-            if (!canAdd) {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text          = "ALL ${GRID_COLS * GRID_ROWS} CELLS OCCUPIED — REMOVE A WIDGET TO ADD MORE",
-                    color         = if (isDayMode) Color(0xFFE03131) else Color(0xFF3A3A3A),
-                    fontSize      = 8.sp,
-                    letterSpacing = 1.sp,
-                    modifier      = Modifier.fillMaxWidth(),
-                    textAlign     = TextAlign.Center
-                )
-            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text          = if (canAdd)
+                    "TAPPING A CARD ADDS IT TO PAGE ${pageIndex + 1} — DUPLICATES ARE ALLOWED. LONG-PRESS A CARD TO MOVE, RESIZE OR REMOVE IT."
+                else
+                    "ALL ${dims.cols * dims.rows} CELLS ON PAGE ${pageIndex + 1} ARE OCCUPIED — LONG-PRESS A CARD TO MOVE OR REMOVE IT, OR PICK A BIGGER GRID.",
+                color         = when {
+                    !canAdd   -> if (isDayMode) Color(0xFFE03131) else Color(0xFFFA5252)
+                    isDayMode -> Color(0xFF495057)
+                    else      -> Color(0xFF3A3A3A)
+                },
+                fontSize      = 8.sp,
+                letterSpacing = 1.sp,
+                modifier      = Modifier.fillMaxWidth(),
+                textAlign     = TextAlign.Center
+            )
         }
     }
 }
@@ -1047,13 +1377,14 @@ private fun WidgetLibraryDialog(
 @Composable
 private fun WidgetLibraryCard(
     info: WidgetTypeInfo,
-    isActive: Boolean,
+    count: Int,
     canAdd: Boolean,
     accent: Color,
     isDayMode: Boolean,
-    onToggle: () -> Unit
+    onAdd: () -> Unit
 ) {
-    val enabled    = isActive || canAdd
+    val isActive   = count > 0
+    val enabled    = canAdd
     val cardBorder = if (isActive) accent else if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF1A1A1A)
     val cardBg     = if (isActive) accent.copy(alpha = 0.15f) else if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF0E0E0E)
     val iconTint   = if (isActive) accent else if (isDayMode) Color(0xFF495057) else Color(0xFF333333)
@@ -1066,7 +1397,7 @@ private fun WidgetLibraryCard(
             .clip(RoundedCornerShape(4.dp))
             .background(cardBg)
             .border(1.dp, cardBorder, RoundedCornerShape(4.dp))
-            .clickable(enabled = enabled, onClick = onToggle)
+            .clickable(enabled = enabled, onClick = onAdd)
             .padding(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -1085,7 +1416,7 @@ private fun WidgetLibraryCard(
         Spacer(Modifier.height(3.dp))
         Text(
             text          = when {
-                isActive -> "ACTIVE"
+                isActive -> "×$count ON HOME"
                 !canAdd  -> "FULL"
                 else     -> "ADD"
             },

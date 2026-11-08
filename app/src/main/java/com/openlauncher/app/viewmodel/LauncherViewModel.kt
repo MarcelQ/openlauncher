@@ -15,15 +15,25 @@ import androidx.lifecycle.viewModelScope
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.DefaultShortcutIcon
-import com.openlauncher.app.data.GRID_COLS
-import com.openlauncher.app.data.GRID_ROWS
+import com.openlauncher.app.data.GridPage
+import com.openlauncher.app.data.MAX_COLS
+import com.openlauncher.app.data.MAX_PAGES
+import com.openlauncher.app.data.MAX_ROWS
+import com.openlauncher.app.data.MIN_COLS
+import com.openlauncher.app.data.MIN_ROWS
 import com.openlauncher.app.data.SettingsRepository
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.SoundPadConfig
 import com.openlauncher.app.data.WeatherApi
-import com.openlauncher.app.data.activeWidgetIds
+import com.openlauncher.app.data.WidgetInstance
 import com.openlauncher.app.data.computeWidgetMove
 import com.openlauncher.app.data.defaultShortcuts
+import com.openlauncher.app.data.firstFreeArea
+import com.openlauncher.app.data.firstFreeCell
+import com.openlauncher.app.data.hasWidgetType
+import com.openlauncher.app.data.instancesOnPage
+import com.openlauncher.app.data.nextInstanceId
+import com.openlauncher.app.data.resizePageLayout
 import com.openlauncher.app.util.SunriseSunset
 import com.openlauncher.app.util.SystemBrightness
 import com.openlauncher.app.model.AppInfo
@@ -162,107 +172,142 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun updateWidgetConfig(id: String, spanX: Int, spanY: Int) {
         updateSettings {
-            val resized = widgetLayout.map { w ->
+            val inst = widgets.find { it.id == id } ?: return@updateSettings this
+            val pageIndex = inst.page.coerceIn(0, pages.lastIndex)
+            val dims      = pages[pageIndex]
+            val onPage    = instancesOnPage(widgets, pageIndex)
+            val others    = widgets.filter { it.page != pageIndex }
+
+            val resized = onPage.map { w ->
                 if (w.id == id) w.copy(
-                    spanX = spanX.coerceIn(1, GRID_COLS - w.gridX),
-                    spanY = spanY.coerceIn(1, GRID_ROWS - w.gridY)
+                    spanX = spanX.coerceIn(1, dims.cols - w.gridX),
+                    spanY = spanY.coerceIn(1, dims.rows - w.gridY)
                 ) else w
             }
-            // Re-run collision resolution so enlarging a widget pushes neighbors
+            // Re-run collision resolution so enlarging a card pushes neighbors
             // aside instead of stacking on top of them
-            val activeIds = activeWidgetIds()
-            val active    = resized.filter { it.enabled && it.id in activeIds }
-            val inactive  = resized.filter { !it.enabled || it.id !in activeIds }
-            val target    = active.find { it.id == id }
-            copy(widgetLayout = if (target != null)
-                computeWidgetMove(active, id, target.gridX, target.gridY) + inactive
-            else resized)
+            val target = resized.find { it.id == id }
+            copy(widgets = others + (if (target != null)
+                computeWidgetMove(resized, id, target.gridX, target.gridY, dims.cols, dims.rows)
+            else resized))
         }
     }
 
     fun moveWidgetConfig(id: String, gridX: Int, gridY: Int) {
         updateSettings {
-            val activeIds = activeWidgetIds()
-            val active   = widgetLayout.filter { it.enabled && it.id in activeIds }
-            val inactive = widgetLayout.filter { !it.enabled || it.id !in activeIds }
-            copy(widgetLayout = computeWidgetMove(active, id, gridX, gridY) + inactive)
+            val inst = widgets.find { it.id == id } ?: return@updateSettings this
+            val pageIndex = inst.page.coerceIn(0, pages.lastIndex)
+            val dims      = pages[pageIndex]
+            val onPage    = instancesOnPage(widgets, pageIndex)
+            val others    = widgets.filter { it.page != pageIndex }
+            copy(widgets = others + computeWidgetMove(onPage, id, gridX, gridY, dims.cols, dims.rows))
         }
     }
 
-    fun addWidget(id: String) {
+    /**
+     * Adds a new card of [type] to [page]. Types can be duplicated freely —
+     * each add creates an independent instance ("VOLUME", "VOLUME~2", …).
+     */
+    fun addWidget(type: String, page: Int) {
         updateSettings {
-            val activeIds = activeWidgetIds()
-            var layout    = widgetLayout
-            var cell      = freeCellIn(layout, activeIds)
+            val pageIndex = page.coerceIn(0, pages.lastIndex)
+            val dims      = pages[pageIndex]
+            val others    = widgets.filter { it.page != pageIndex }
+            var onPage    = instancesOnPage(widgets, pageIndex)
+            var cell      = firstFreeCell(onPage, dims.cols, dims.rows)
 
-            // If grid is full, shrink the largest multi-cell widget by one span to make room
+            // If the page is full, shrink the largest multi-cell card by one span to make room
             if (cell == null) {
-                val candidate = layout
-                    .filter { it.enabled && it.id in activeIds && it.spanX * it.spanY > 1 }
+                val candidate = onPage
+                    .filter { it.spanX * it.spanY > 1 }
                     .maxByOrNull { it.spanX * it.spanY }
                 if (candidate != null) {
-                    layout = layout.map { w ->
+                    onPage = onPage.map { w ->
                         if (w.id == candidate.id)
                             if (w.spanY > 1) w.copy(spanY = w.spanY - 1) else w.copy(spanX = w.spanX - 1)
                         else w
                     }
-                    cell = freeCellIn(layout, activeIds)
+                    cell = firstFreeCell(onPage, dims.cols, dims.rows)
                 }
             }
 
             val cell_ = cell ?: return@updateSettings this
 
-            val withShow = when (id) {
-                "CLOCK"       -> copy(showClock = true)
-                "WEATHER"     -> copy(showWeather = true)
-                "NOW_PLAYING" -> copy(showNowPlaying = true)
-                "TELEMETRY"   -> copy(showTelemetry = true)
-                "ALTIMETER"   -> copy(showAltimeter = true)
-                "SPEEDOMETER" -> copy(showSpeedometer = true)
-                "VITALS"      -> copy(showVitals = true)
-                "TRIP_TRACKER" -> copy(showTripTracker = true)
-                "SOUNDBOARD"  -> copy(showSoundboard = true)
-                "VOLUME"      -> copy(showVolume = true)
-                "BRIGHTNESS" -> copy(showBrightness = true)
-                "TPMS"       -> copy(showTpms = true)
-                else          -> this
-            }
-            val idx       = layout.indexOfFirst { it.id == id }
-            val newLayout = if (idx >= 0) layout.toMutableList().also { list ->
-                val w = list[idx]
-                // Try to keep the widget's previous span; if no free area fits it,
-                // fall back to 1×1 at the free cell so it can't overlap neighbors
-                val area = if (w.spanX > 1 || w.spanY > 1) freeAreaIn(layout, activeIds, w.spanX, w.spanY) else null
-                list[idx] = if (area != null)
-                    w.copy(enabled = true, gridX = area.first, gridY = area.second)
-                else
-                    w.copy(enabled = true, gridX = cell_.first, gridY = cell_.second, spanX = 1, spanY = 1)
-            } else {
-                layout + com.openlauncher.app.data.WidgetConfig(id, cell_.first, cell_.second)
-            }
-            withShow.copy(widgetLayout = newLayout)
+            // Duplicates inherit the most recent card of this type's span; if no
+            // free area fits it, fall back to 1×1 at the free cell so it can't
+            // overlap neighbors
+            val template = widgets.lastOrNull { it.type == type }
+            val sx = (template?.spanX ?: 1).coerceIn(1, dims.cols)
+            val sy = (template?.spanY ?: 1).coerceIn(1, dims.rows)
+            val area = if (sx > 1 || sy > 1) firstFreeArea(onPage, dims.cols, dims.rows, sx, sy) else null
+            val inst = if (area != null)
+                WidgetInstance(nextInstanceId(widgets, type), type, pageIndex, area.first, area.second, sx, sy)
+            else
+                WidgetInstance(nextInstanceId(widgets, type), type, pageIndex, cell_.first, cell_.second)
+            copy(widgets = others + onPage + inst)
         }
     }
 
     fun removeWidget(id: String) {
+        updateSettings { copy(widgets = widgets.filterNot { it.id == id }) }
+    }
+
+    /** Moves an existing card to another page; no-op when the target page has no room. */
+    fun moveWidgetToPage(id: String, page: Int) {
         updateSettings {
-            when (id) {
-                "CLOCK"       -> copy(showClock = false)
-                "WEATHER"     -> copy(showWeather = false)
-                "NOW_PLAYING" -> copy(showNowPlaying = false)
-                "TELEMETRY"   -> copy(showTelemetry = false)
-                "ALTIMETER"   -> copy(showAltimeter = false)
-                "SPEEDOMETER" -> copy(showSpeedometer = false)
-                "VITALS"      -> copy(showVitals = false)
-                "TRIP_TRACKER" -> copy(showTripTracker = false)
-                "SOUNDBOARD"  -> copy(showSoundboard = false)
-                "VOLUME"      -> copy(showVolume = false)
-                "BRIGHTNESS" -> copy(showBrightness = false)
-                // TPMS was missing here: without this the library could enable the card
-                // but the ACTIVE toggle never turned it back off
-                "TPMS"       -> copy(showTpms = false)
-                else          -> this
-            }
+            val inst = widgets.find { it.id == id } ?: return@updateSettings this
+            val target = page.coerceIn(0, pages.lastIndex)
+            if (inst.page == target) return@updateSettings this
+            val dims     = pages[target]
+            val onTarget = instancesOnPage(widgets, target)
+            // Keep the span when a matching free area exists, otherwise demote to 1×1
+            val area = firstFreeArea(onTarget, dims.cols, dims.rows, inst.spanX, inst.spanY)
+            val pos  = area ?: firstFreeCell(onTarget, dims.cols, dims.rows) ?: return@updateSettings this
+            copy(widgets = widgets.map { w ->
+                if (w.id == id) w.copy(
+                    page  = target,
+                    gridX = pos.first,
+                    gridY = pos.second,
+                    spanX = if (area != null) w.spanX else 1,
+                    spanY = if (area != null) w.spanY else 1
+                ) else w
+            })
+        }
+    }
+
+    // ── Home screen pages ─────────────────────────────────────────────────────
+    fun addPage() {
+        updateSettings {
+            if (pages.size >= MAX_PAGES) return@updateSettings this
+            copy(pages = pages + GridPage())
+        }
+    }
+
+    /** Page removal refuses non-empty pages so cards are never silently lost. */
+    fun removePage(index: Int) {
+        updateSettings {
+            if (index !in pages.indices || pages.size <= 1) return@updateSettings this
+            if (instancesOnPage(widgets, index).isNotEmpty()) return@updateSettings this
+            copy(
+                pages   = pages.filterIndexed { i, _ -> i != index },
+                widgets = widgets.map { w -> if (w.page > index) w.copy(page = w.page - 1) else w }
+            )
+        }
+    }
+
+    /** Resizes a page's grid; refuses when existing cards can't be re-flowed into the new size. */
+    fun setPageSize(index: Int, cols: Int, rows: Int) {
+        updateSettings {
+            pages.getOrNull(index) ?: return@updateSettings this
+            val newCols = cols.coerceIn(MIN_COLS, MAX_COLS)
+            val newRows = rows.coerceIn(MIN_ROWS, MAX_ROWS)
+            if (pages[index].cols == newCols && pages[index].rows == newRows) return@updateSettings this
+            val resized = resizePageLayout(instancesOnPage(widgets, index), newCols, newRows)
+                ?: return@updateSettings this
+            copy(
+                pages   = pages.mapIndexed { i, p -> if (i == index) p.copy(cols = newCols, rows = newRows) else p },
+                widgets = widgets.filter { it.page != index } + resized
+            )
         }
     }
 
@@ -305,7 +350,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
      * as clear).
      */
     private fun brightnessTargetPct(s: AppSettings, loc: LocationData?, w: WeatherState?): Int? {
-        if (!s.showBrightness || !s.brightnessAuto) return null
+        if (!s.hasWidgetType("BRIGHTNESS") || !s.brightnessAuto) return null
         val l = loc ?: return null
         val day = runCatching { SunriseSunset.isDay(l.latitude, l.longitude) }.getOrDefault(true)
         if (!day) return s.brightnessLowPct
@@ -322,30 +367,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     // location/weather/minuteTicker declarations — viewModelScope runs on
     // Dispatchers.Main.immediate, so a launch earlier in the class would see
     // those properties as null during construction.
-
-    private fun freeCellIn(
-        layout: List<com.openlauncher.app.data.WidgetConfig>,
-        activeIds: Set<String>
-    ): Pair<Int, Int>? = freeAreaIn(layout, activeIds, 1, 1)
-
-    private fun freeAreaIn(
-        layout: List<com.openlauncher.app.data.WidgetConfig>,
-        activeIds: Set<String>,
-        spanX: Int,
-        spanY: Int
-    ): Pair<Int, Int>? {
-        val occupied = buildSet<Pair<Int, Int>> {
-            layout.filter { it.enabled && it.id in activeIds }.forEach { w ->
-                for (dx in 0 until w.spanX) for (dy in 0 until w.spanY) add(w.gridX + dx to w.gridY + dy)
-            }
-        }
-        for (row in 0 until GRID_ROWS) for (col in 0 until GRID_COLS) {
-            if (col + spanX > GRID_COLS || row + spanY > GRID_ROWS) continue
-            if ((0 until spanX).all { dx -> (0 until spanY).all { dy -> (col + dx to row + dy) !in occupied } })
-                return col to row
-        }
-        return null
-    }
 
     fun cancelCarPlayPicker() {
         _appPickerTarget.value = null
@@ -471,10 +492,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Plug-in hook from MainActivity's USB_DEVICE_ATTACHED intent. */
     fun onUsbDeviceAttached() = tpms.onPlugIn("usb intent")
 
-    // Settings drive the repository: showing the card is what arms auto-connect.
+    // Settings drive the repository: having a TPMS card on any page is what arms auto-connect.
     init {
         viewModelScope.launch {
-            settings.collect { s -> tpms.configure(s.showTpms, s.tpmsAutoConnect) }
+            settings.collect { s -> tpms.configure(s.hasWidgetType("TPMS"), s.tpmsAutoConnect) }
         }
     }
 

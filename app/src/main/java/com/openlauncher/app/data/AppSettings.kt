@@ -51,18 +51,6 @@ data class ShortcutConfig(
     val customIconOverride: DefaultShortcutIcon? = null
 )
 
-const val GRID_COLS = 3
-const val GRID_ROWS = 2
-
-data class WidgetConfig(
-    val id: String,          // "CLOCK" | "WEATHER" | "TELEMETRY" | "NOW_PLAYING"
-    val gridX: Int,          // column 0..(GRID_COLS-1)
-    val gridY: Int,          // row    0..(GRID_ROWS-1)
-    val spanX: Int = 1,
-    val spanY: Int = 1,
-    val enabled: Boolean = true
-)
-
 data class AppSettings(
     val vehicleName: String = "MY CAR",
     val accentColor: Int = Color.White.toArgb(),
@@ -75,12 +63,14 @@ data class AppSettings(
     val clockStyle: ClockStyle = ClockStyle.DIGITAL,
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val appFont: AppFont = AppFont.JETBRAINS_MONO,
-    val showWeather: Boolean = true,
-    val showClock: Boolean = true,
-    val showTelemetry: Boolean = true,
-    val showNowPlaying: Boolean = true,
     val shortcuts: List<ShortcutConfig> = defaultShortcuts(),
-    val widgetLayout: List<WidgetConfig> = defaultWidgetLayout(),
+    // ── Home screen grid ──────────────────────────────────────────────────────
+    // Up to MAX_PAGES swipeable pages, each with its own cols×rows grid.
+    // Which cards are shown is decided by `widgets` alone — a widget type is
+    // "on" while it has at least one instance, and the same type can appear
+    // several times (duplicates). See GridLayout.kt for the placement engine.
+    val pages: List<GridPage> = defaultPages(),
+    val widgets: List<WidgetInstance> = defaultWidgetInstances(),
     val carPlayPackage: String = "",
     val androidAutoPackage: String = "",
     val useGradient: Boolean = false,
@@ -88,33 +78,27 @@ data class AppSettings(
     val wallpaperDim: Float = 0.55f,
     val sidebarPosition: SidebarPosition = SidebarPosition.LEFT,
     val bottomBarShortcutsRight: Boolean = false,
-    val showAltimeter: Boolean = false,
-    val showSpeedometer: Boolean = false,
     val dayNightMode: DayNightMode = DayNightMode.DARK,
     val showPip: Boolean = false,
     val pipAppPackage: String = "",
     // Head unit's radio app — mirrored & controlled via its MediaSession
     val radioPackage: String = "",
     val onboardingCompleted: Boolean = false,
-    val showVitals: Boolean = false,
-    val showTripTracker: Boolean = false,
     val compassOffset: Float = 0f,
-    val showSoundboard: Boolean = false,
     val soundboardPads: List<SoundPadConfig> = defaultSoundboardPads(),
-    val showVolume: Boolean = false,
     // ── Screen brightness ─────────────────────────────────────────────────────────
     // Preset levels are 1..100 (% of the SCREEN_BRIGHTNESS range) and only applied
     // when a card button is tapped or brightnessAuto drives them. Auto needs a GPS
-    // fix (sun position) and uses the weather card's data for cloud cover.
-    val showBrightness: Boolean = false,
+    // fix (sun position) and uses the weather card's data for cloud cover. The
+    // auto loop only runs while a BRIGHTNESS card exists on some page.
     val brightnessAuto: Boolean = false,
     val brightnessHighPct: Int = 100,
     val brightnessMediumPct: Int = 55,
     val brightnessLowPct: Int = 15,
     // ── TPMS (USB receiver) ───────────────────────────────────────────────────────
-    // Off by default: the grid is full in the stock layout, so the card is added from the
-    // widget library. Enabling it is what arms the auto-connect loop.
-    val showTpms: Boolean = false,
+    // Off by default: no TPMS instance in the stock layout, so the card is added
+    // from the widget library. A TPMS card on any page is what arms the
+    // auto-connect loop (see hasWidgetType + LauncherViewModel's settings collector).
     val tpmsAutoConnect: Boolean = true,
     val tpmsPressureUnit: PressureUnit = PressureUnit.BAR,
     /** Alarm threshold, always stored in kPa so changing the display unit can't shift it. */
@@ -132,80 +116,5 @@ fun defaultShortcuts() = listOf(
     ShortcutConfig(label = "Phone", isDefault = true, defaultIcon = DefaultShortcutIcon.PHONE)
 )
 
-fun defaultWidgetLayout() = listOf(
-    WidgetConfig("CLOCK",       gridX = 0, gridY = 0, spanX = 1, spanY = 1),
-    WidgetConfig("WEATHER",     gridX = 1, gridY = 0, spanX = 1, spanY = 1),
-    WidgetConfig("TELEMETRY",   gridX = 2, gridY = 0, spanX = 1, spanY = 2),
-    WidgetConfig("NOW_PLAYING", gridX = 0, gridY = 1, spanX = 2, spanY = 1)
-)
-
-fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
-    if (showClock) add("CLOCK")
-    if (showWeather) add("WEATHER")
-    if (showNowPlaying) add("NOW_PLAYING")
-    if (showTelemetry) add("TELEMETRY")
-    if (showAltimeter) add("ALTIMETER")
-    if (showSpeedometer) add("SPEEDOMETER")
-    if (showVitals) add("VITALS")
-    if (showTripTracker) add("TRIP_TRACKER")
-    if (showSoundboard) add("SOUNDBOARD")
-    if (showVolume) add("VOLUME")
-    if (showBrightness) add("BRIGHTNESS")
-    if (showTpms) add("TPMS")
-}
-
-/**
- * Moves [movingId] to ([targetX], [targetY]) and pushes any displaced widgets to the
- * first available free cell, cascading until all conflicts are resolved.
- * Operates only on the supplied [layout] list — callers should pass only active/enabled widgets.
- */
-fun computeWidgetMove(
-    layout: List<WidgetConfig>,
-    movingId: String,
-    targetX: Int,
-    targetY: Int
-): List<WidgetConfig> {
-    val moving = layout.find { it.id == movingId } ?: return layout
-    val placed = moving.copy(
-        gridX = targetX.coerceIn(0, GRID_COLS - moving.spanX),
-        gridY = targetY.coerceIn(0, GRID_ROWS - moving.spanY)
-    )
-
-    val others  = layout.filter { it.id != movingId }
-    val result  = mutableListOf(placed)
-    val occupied = buildOccupied(result).toMutableSet()
-
-    // Stable widgets that don't conflict go first; displaced ones are pushed afterwards
-    val (stable, displaced) = others.partition { w -> result.none { widgetsOverlap(it, w) } }
-
-    for (w in stable) {
-        result.add(w)
-        for (dx in 0 until w.spanX) for (dy in 0 until w.spanY) occupied.add(w.gridX + dx to w.gridY + dy)
-    }
-
-    for (w in displaced) {
-        val pos = firstFreeGridPos(w.spanX, w.spanY, occupied)
-        val resolved = if (pos != null) w.copy(gridX = pos.first, gridY = pos.second) else w
-        result.add(resolved)
-        for (dx in 0 until resolved.spanX) for (dy in 0 until resolved.spanY) occupied.add(resolved.gridX + dx to resolved.gridY + dy)
-    }
-
-    return result
-}
-
-private fun buildOccupied(widgets: List<WidgetConfig>) = buildSet<Pair<Int, Int>> {
-    widgets.forEach { w -> for (dx in 0 until w.spanX) for (dy in 0 until w.spanY) add(w.gridX + dx to w.gridY + dy) }
-}
-
-private fun widgetsOverlap(a: WidgetConfig, b: WidgetConfig): Boolean =
-    a.gridX < b.gridX + b.spanX && a.gridX + a.spanX > b.gridX &&
-    a.gridY < b.gridY + b.spanY && a.gridY + a.spanY > b.gridY
-
-private fun firstFreeGridPos(spanX: Int, spanY: Int, occupied: Set<Pair<Int, Int>>): Pair<Int, Int>? {
-    for (row in 0 until GRID_ROWS) for (col in 0 until GRID_COLS) {
-        if (col + spanX > GRID_COLS || row + spanY > GRID_ROWS) continue
-        if ((0 until spanX).all { dx -> (0 until spanY).all { dy -> (col + dx to row + dy) !in occupied } })
-            return col to row
-    }
-    return null
-}
+/** True while at least one card of [type] is on any page (drives TPMS auto-connect, auto-brightness…). */
+fun AppSettings.hasWidgetType(type: String): Boolean = widgets.any { it.type == type }

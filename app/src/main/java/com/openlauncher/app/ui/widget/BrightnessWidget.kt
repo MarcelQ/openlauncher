@@ -32,11 +32,16 @@ import kotlinx.coroutines.delay
 /**
  * Screen brightness card: vertical layout with three preset buttons —
  * full sun (high) on top, half sun (medium) in the middle, moon (low) at
- * the bottom — and a readout under them. The preset percentages are set in
- * the card's context menu (long-press). When AUTO is enabled the view model
- * writes the level itself (sun position + cloud cover); the buttons stay
- * usable as a manual override until the next auto change.
+ * the bottom — and a readout under them. On dense grids (cells below
+ * [COMPACT_BELOW_H]) the three buttons flip into a single horizontal row so
+ * the card stays usable inside a 1×1 cell of a 4×3 or 6×4 page. The preset
+ * percentages are set in the card's context menu (long-press). When AUTO is
+ * enabled the view model writes the level itself (sun position + cloud
+ * cover); the buttons stay usable as a manual override until the next auto
+ * change.
  */
+private val COMPACT_BELOW_H = 150.dp
+
 @Composable
 fun BrightnessWidget(
     highPct: Int,
@@ -87,62 +92,160 @@ fun BrightnessWidget(
     fun isCurrent(presetPct: Int) =
         currentPct >= 0 && kotlin.math.abs(currentPct - presetPct) <= 2
 
-    // Top padding = 22.dp leaves room for the card header label (same as VOLUME)
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(start = 10.dp, end = 10.dp, top = 22.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        PresetButton(
-            icon    = Icons.Default.WbSunny,
-            contentDescription = "High brightness",
-            active  = isCurrent(highPct),
-            accent  = accent,
-            contentColor = contentColor,
-            borderColor = borderColor,
-            enabled = !isEditing, // edit mode must stay free for long-press dragging
-            onClick = { applyPct(highPct) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        )
-        PresetButton(
-            icon    = Icons.Default.BrightnessMedium,
-            contentDescription = "Medium brightness",
-            active  = isCurrent(mediumPct),
-            accent  = accent,
-            contentColor = contentColor,
-            borderColor = borderColor,
-            enabled = !isEditing,
-            onClick = { applyPct(mediumPct) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        )
-        PresetButton(
-            icon    = Icons.Default.Nightlight,
-            contentDescription = "Low brightness",
-            active  = isCurrent(lowPct),
-            accent  = accent,
-            contentColor = contentColor,
-            borderColor = borderColor,
-            enabled = !isEditing,
-            onClick = { applyPct(lowPct) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        )
-        Text(
-            text          = readout,
-            color         = accent,
-            fontSize      = 10.sp,
-            fontFamily    = FontFamily.Monospace,
-            fontWeight    = FontWeight.Bold,
-            letterSpacing = 1.5.sp,
-            textAlign     = TextAlign.Center
-        )
+    val highActive = isCurrent(highPct)
+    val medActive  = isCurrent(mediumPct)
+    val lowActive  = isCurrent(lowPct)
+
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val compact = maxHeight < COMPACT_BELOW_H
+        // 22.dp leaves room for the card header label in the full layout; compact
+        // cells at/above 90.dp still show it (HomeScreen's threshold), below that
+        // the label is hidden and padding can shrink.
+        val topPad = when {
+            !compact           -> 22.dp
+            maxHeight >= 90.dp -> 18.dp
+            else               -> 6.dp
+        }
+        val iconSize = when {
+            !compact            -> 26.dp
+            maxHeight >= 90.dp  -> 22.dp
+            else                -> 18.dp
+        }
+
+        if (!compact) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 10.dp, end = 10.dp, top = topPad, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                PresetButton(
+                    icon    = Icons.Default.WbSunny,
+                    contentDescription = "High brightness",
+                    active  = highActive,
+                    accent  = accent,
+                    contentColor = contentColor,
+                    borderColor = borderColor,
+                    iconSize = iconSize,
+                    enabled = !isEditing, // edit mode must stay free for long-press dragging
+                    onClick = { applyPct(highPct) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+                PresetButton(
+                    icon    = Icons.Default.BrightnessMedium,
+                    contentDescription = "Medium brightness",
+                    active  = medActive,
+                    accent  = accent,
+                    contentColor = contentColor,
+                    borderColor = borderColor,
+                    iconSize = iconSize,
+                    enabled = !isEditing,
+                    onClick = { applyPct(mediumPct) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+                PresetButton(
+                    icon    = Icons.Default.Nightlight,
+                    contentDescription = "Low brightness",
+                    active  = lowActive,
+                    accent  = accent,
+                    contentColor = contentColor,
+                    borderColor = borderColor,
+                    iconSize = iconSize,
+                    enabled = !isEditing,
+                    onClick = { applyPct(lowPct) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+                Text(
+                    text          = readout,
+                    color         = accent,
+                    fontSize      = 10.sp,
+                    fontFamily    = FontFamily.Monospace,
+                    fontWeight    = FontWeight.Bold,
+                    letterSpacing = 1.5.sp,
+                    textAlign     = TextAlign.Center
+                )
+            }
+        } else {
+            // Compact: three preset buttons in one row; the active-preset border
+            // carries the state, so the numeric readout only appears when the
+            // cell is still tall enough for it
+            val showReadout = maxHeight >= 115.dp
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 8.dp, end = 8.dp, top = topPad, bottom = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    PresetButton(
+                        icon    = Icons.Default.WbSunny,
+                        contentDescription = "High brightness",
+                        active  = highActive,
+                        accent  = accent,
+                        contentColor = contentColor,
+                        borderColor = borderColor,
+                        iconSize = iconSize,
+                        enabled = !isEditing,
+                        onClick = { applyPct(highPct) },
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .weight(1f)
+                    )
+                    PresetButton(
+                        icon    = Icons.Default.BrightnessMedium,
+                        contentDescription = "Medium brightness",
+                        active  = medActive,
+                        accent  = accent,
+                        contentColor = contentColor,
+                        borderColor = borderColor,
+                        iconSize = iconSize,
+                        enabled = !isEditing,
+                        onClick = { applyPct(mediumPct) },
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .weight(1f)
+                    )
+                    PresetButton(
+                        icon    = Icons.Default.Nightlight,
+                        contentDescription = "Low brightness",
+                        active  = lowActive,
+                        accent  = accent,
+                        contentColor = contentColor,
+                        borderColor = borderColor,
+                        iconSize = iconSize,
+                        enabled = !isEditing,
+                        onClick = { applyPct(lowPct) },
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .weight(1f)
+                    )
+                }
+                if (showReadout) {
+                    Text(
+                        text          = readout,
+                        color         = accent,
+                        fontSize      = 8.sp,
+                        fontFamily    = FontFamily.Monospace,
+                        fontWeight    = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        textAlign     = TextAlign.Center,
+                        modifier      = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -154,6 +257,7 @@ private fun PresetButton(
     accent: Color,
     contentColor: Color,
     borderColor: Color,
+    iconSize: androidx.compose.ui.unit.Dp,
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -180,7 +284,7 @@ private fun PresetButton(
             imageVector        = icon,
             contentDescription = contentDescription,
             tint               = if (pressed || active) accent else contentColor,
-            modifier           = Modifier.size(26.dp)
+            modifier           = Modifier.size(iconSize)
         )
     }
 }

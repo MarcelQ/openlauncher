@@ -9,8 +9,11 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
 - Prefer small, reviewable changes. Explain the plan before multi-file refactors.
 - Do not silently change package IDs, signing, min/target SDK, Gradle/AGP/Kotlin versions, or app permissions.
 - Preserve offline-first behaviour and compatibility with aftermarket Android head units, including older Android versions where the project supports them.
-- Unit tests exist only for the TPMS wire protocol: `app\src\test\java\com\openlauncher\app\tpms\`
-  (JVM only, no device). No `app\src\androidTest` sources. Run them locally with
+- Unit tests exist for the TPMS wire protocol (`app\src\test\java\com\openlauncher\app\tpms\`)
+  and for the multi-page widget grid engine — placement, page resize guards, duplicate
+  instance ids, legacy migration (`app\src\test\java\com\openlauncher\app\data\GridLayoutTest.kt`;
+  the engine itself lives in `app\src\main\java\com\openlauncher\app\data\GridLayout.kt`, framework-free).
+  JVM only, no device. No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).
   CI (`.github\workflows\build-apk.yml`) runs both on every push/PR.
