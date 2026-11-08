@@ -40,6 +40,14 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   `https://github.com/MarcelQ/openlauncher/releases/download/dev-latest/openlauncher-dev-debug.apk`
 - Installing a debug APK makes the app a HOME candidate on the head unit; if that is not wanted,
   revert with `adb shell cmd package set-home-activity <previous launcher>`.
+- **Debug signing is shared**: CI and local debug builds sign with `keystore\debug.keystore`
+  (untracked — gitignored; CI restores it from the Actions secret `DEBUG_KEYSTORE_B64`). This is
+  what lets rolling-release APKs update each other on the device — Android refuses installs over a
+  different signature. Release signing remains unset (no release keystore anywhere). If the local
+  copy is lost, regenerate with the keytool command documented in `app\build.gradle.kts` and re-set
+  the secret (`gh secret set DEBUG_KEYSTORE_B64 --repo MarcelQ/openlauncher`). Never commit it.
+  Devices still running an APK signed with an older throwaway debug key need ONE manual uninstall
+  before a shared-key build installs.
 - **In-app updater** (Settings ▸ Updates, `data\UpdateChecker.kt` + `data\ApkDownloader.kt`): polls
   `api.github.com/repos/MarcelQ/openlauncher/releases/tags/<dev-latest|main-latest>` and offers the
   channel's APK (user picks dev or main; debug builds default to dev). Requires the CI release NOTES

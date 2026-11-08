@@ -29,9 +29,33 @@ android {
         buildConfigField("String", "GIT_SHA", "\"${gitShortSha()}\"")
     }
 
+    // Shared debug signing key. The SAME keystore is used by CI (decoded from the
+    // DEBUG_KEYSTORE_B64 Actions secret into keystore/debug.keystore by build-apk.yml)
+    // and local builds — Android refuses to update an APK across different signatures,
+    // so this is what makes the in-app updater + rolling releases actually installable
+    // on top of each other. Debug-only: release signing is unchanged. Regenerate (and
+    // update the Actions secret) with:
+    //   keytool -genkeypair -keystore keystore/debug.keystore -alias androiddebugkey \
+    //     -storepass android -keypass android -keyalg RSA -keysize 2048 \
+    //     -sigalg SHA256withRSA -validity 10950 -dname "CN=Android Debug, O=Android, C=US"
+    val sharedDebugKeystore = rootProject.file("keystore/debug.keystore")
+    if (sharedDebugKeystore.exists()) {
+        signingConfigs {
+            create("sharedDebug") {
+                storeFile     = sharedDebugKeystore
+                storePassword = "android"
+                keyAlias      = "androiddebugkey"
+                keyPassword   = "android"
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // Default signing config for normal device testing (restores app visibility)
+            if (sharedDebugKeystore.exists()) {
+                signingConfig = signingConfigs.getByName("sharedDebug")
+            }
         }
         release {
             isMinifyEnabled = false
