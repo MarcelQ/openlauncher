@@ -88,8 +88,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private fun localBuild() =
         LocalBuild(BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME, BuildConfig.GIT_SHA)
 
-    fun setUpdateChannel(channel: UpdateChannel) =
+    fun setUpdateChannel(channel: UpdateChannel) {
+        // A check result for the old channel must not linger on screen.
+        _updateState.value = UpdateUiState.Idle
         updateSettings { copy(updateChannel = channel.name) }
+    }
 
     fun checkForUpdates() {
         viewModelScope.launch {

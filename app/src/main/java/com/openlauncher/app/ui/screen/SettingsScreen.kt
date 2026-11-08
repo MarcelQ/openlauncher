@@ -874,12 +874,21 @@ fun SettingsScreen(
                     icon     = Icons.Default.Refresh
                 ) {}
 
-                is UpdateUiState.UpToDate -> SettingsRow(
-                    label    = "Up to date",
-                    sublabel = "v${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_SHA}) matches ${channel.releaseTag}" +
-                        (st.remote.versionName?.let { " · remote v$it" } ?: ""),
-                    icon     = Icons.Default.Done
-                ) {}
+                is UpdateUiState.UpToDate -> {
+                    SettingsRow(
+                        label    = "Up to date",
+                        sublabel = "v${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_SHA}) matches ${st.remote.fileName}" +
+                            (st.remote.versionName?.let { " · remote v$it" } ?: ""),
+                        icon     = Icons.Default.Done
+                    ) {}
+                    SettingsButton(
+                        label    = "Check again",
+                        sublabel = "$UPDATE_REPO · channel ${channel.label}",
+                        icon     = Icons.Default.Refresh,
+                        accent   = accent,
+                        onClick  = { onCheckUpdates() }
+                    )
+                }
 
                 is UpdateUiState.UpdateAvailable -> {
                     SettingsRow(
@@ -941,11 +950,20 @@ fun SettingsScreen(
                     )
                 }
 
-                is UpdateUiState.Failed -> SettingsRow(
-                    label    = "Update failed",
-                    sublabel = st.message,
-                    icon     = Icons.Default.Warning
-                ) {}
+                is UpdateUiState.Failed -> {
+                    SettingsRow(
+                        label    = "Update failed",
+                        sublabel = st.message,
+                        icon     = Icons.Default.Warning
+                    ) {}
+                    SettingsButton(
+                        label    = "Try again",
+                        sublabel = "$UPDATE_REPO · channel ${channel.label}",
+                        icon     = Icons.Default.Refresh,
+                        accent   = accent,
+                        onClick  = { onCheckUpdates() }
+                    )
+                }
             }
 
             SettingsButton(
