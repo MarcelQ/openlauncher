@@ -10,9 +10,10 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
 - Do not silently change package IDs, signing, min/target SDK, Gradle/AGP/Kotlin versions, or app permissions.
 - Preserve offline-first behaviour and compatibility with aftermarket Android head units, including older Android versions where the project supports them.
 - Unit tests exist only for the TPMS wire protocol: `app\src\test\java\com\openlauncher\app\tpms\`
-  (JVM only, no device). No `app\src\androidTest` sources and no CI. Run them with
+  (JVM only, no device). No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).
+  CI (`.github\workflows\build-apk.yml`) runs both on every push/PR.
   Report exactly what was and was not verified.
 - Install and drive the app over adb (`:app:installDebug`, then
   `am start -n com.openlauncher.app/.MainActivity`). The local AVD is an API 37 phone, not a head
@@ -23,3 +24,16 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
 - Keep Car Nebula decompiled material in the sibling `reference\car-nebula-decompiled` folder. It is reference material only. Do not copy proprietary source, assets, keys, or code into this project. Reimplement behaviours independently and respect applicable licences and rights.
 - Never commit decompiled files, APKs, credentials, local model files, logs containing personal data, or hardware captures with identifying information.
 - Before editing, inspect `git status` and preserve the user's uncommitted work.
+
+## Branch model and test APKs (set up 2026-11-08, on fork `MarcelQ/openlauncher`)
+- `dev` = default integration branch; day-to-day feature work goes here (direct pushes allowed).
+  `main` = stable; updated only by merging `dev` via PR (branch protection: no direct/force pushes).
+  Upstream `origin` is still `dw2lam/openlauncher` (fetch with `git fetch origin`).
+- Never commit APKs (see working rules). Installable debug APKs live in GitHub Releases as rolling
+  prereleases, updated by CI on every push: tag `dev-latest` (asset `openlauncher-dev-debug.apk`) and
+  tag `main-latest` (asset `openlauncher-main-debug.apk`). For other branches, CI uploads an
+  `apk-<branch>-<sha>` workflow artifact (requires GitHub login to download).
+- Download straight onto a head unit:
+  `https://github.com/MarcelQ/openlauncher/releases/download/dev-latest/openlauncher-dev-debug.apk`
+- Installing a debug APK makes the app a HOME candidate on the head unit; if that is not wanted,
+  revert with `adb shell cmd package set-home-activity <previous launcher>`.
