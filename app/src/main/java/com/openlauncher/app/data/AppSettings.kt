@@ -104,6 +104,10 @@ data class AppSettings(
     val tpmsPressureUnit: PressureUnit = PressureUnit.BAR,
     /** Alarm threshold, always stored in kPa so changing the display unit can't shift it. */
     val tpmsLowPressureKpa: Float = 200f,
+    /** Master switch for the low-pressure warning (tile colour, banner, chime). */
+    val tpmsAlarmEnabled: Boolean = true,
+    /** Audible warning on top of the visual one — off by default so it never surprises anyone. */
+    val tpmsAlarmSound: Boolean = false,
     val vitalsAsBars: Boolean = false,
     val speedometerDigitalOnly: Boolean = false,
     val gradientDirection: GradientDirection = GradientDirection.DIAGONAL,

@@ -1,5 +1,12 @@
 package com.openlauncher.app.ui.widget
 
+import android.provider.Settings
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,6 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -40,6 +49,12 @@ import kotlinx.coroutines.delay
  *
  * When the link is down the card offers a CONNECT action, so the receiver can be brought up
  * from the home screen without opening settings.
+ *
+ * The low-pressure warning is the [TpmsSnapshot.alarmingWheels] decision, not a local
+ * comparison: with [alarmEnabled] off nothing turns red, and a sensor that has never reported
+ * (0 kPa / no signal) can never make the card warn. A warned tile breathes slowly in the alarm
+ * colour instead of switching on a hard red block, which is meant to be noticeable in a driver's
+ * peripheral vision without competing with the road.
  */
 @Composable
 fun TpmsWidget(
@@ -50,6 +65,7 @@ fun TpmsWidget(
     isMetric: Boolean = true,
     isDayMode: Boolean = false,
     isEditing: Boolean = false,
+    alarmEnabled: Boolean = true,
     onConnect: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -68,7 +84,12 @@ fun TpmsWidget(
     val warnColor    = if (isDayMode) Color(0xFF8A6D3B) else Color(0xFFFFC145)
     val tileBorder   = if (isDayMode) Color(0xFFE5E7EB) else contentColor.copy(alpha = 0.12f)
 
-    val lowWheels = snapshot.lowPressureWheels(lowPressureKpa, now)
+    // Single source of truth for "make this wheel obvious right now": honours the alarm switch,
+    // the sensor's own leak flag, and the 0 kPa / no-signal guards.
+    val alarmWheels = snapshot.alarmingWheels(lowPressureKpa, alarmEnabled, now)
+    val alarming    = alarmWheels.isNotEmpty()
+    // One pulse for the whole card, so all warned tiles breathe in step.
+    val pulse       = if (alarming) alarmPulse() else 1f
 
     Column(
         modifier = modifier
@@ -102,7 +123,8 @@ fun TpmsWidget(
                                 now         = now,
                                 unit        = unit,
                                 isMetric    = isMetric,
-                                lowKpa      = lowPressureKpa,
+                                isAlarm     = pos in alarmWheels,
+                                pulse       = pulse,
                                 scale       = scale,
                                 contentColor = contentColor,
                                 dimColor    = dimColor,
@@ -123,7 +145,8 @@ fun TpmsWidget(
                             now         = now,
                             unit        = unit,
                             isMetric    = isMetric,
-                            lowKpa      = lowPressureKpa,
+                            isAlarm     = TirePosition.SPARE in alarmWheels,
+                            pulse       = pulse,
                             scale       = scale * 0.7f,
                             contentColor = contentColor,
                             dimColor    = dimColor,
@@ -141,7 +164,8 @@ fun TpmsWidget(
         TpmsFooter(
             snapshot      = snapshot,
             now           = now,
-            lowWheels     = lowWheels,
+            alarmWheels   = alarmWheels,
+            pulse         = pulse,
             accent        = accent,
             alarmColor    = alarmColor,
             warnColor     = warnColor,
@@ -164,6 +188,50 @@ private fun fontScaleFor(tileWidth: Dp, tileHeight: Dp): Float {
     return minOf(byHeight, byWidth)
 }
 
+/**
+ * Slow breathing fraction (0.35 → 1.0, ~1.2 s per half-cycle) used while a wheel is alarming.
+ *
+ * A single fraction for the whole card keeps every warned tile in step, and driving only alpha
+ * values (never size or position) means the layout can't jitter while the numbers update.
+ */
+@Composable
+private fun alarmPulse(): Float {
+    if (!animationsEnabled()) return 1f
+    val transition = rememberInfiniteTransition(label = "tpms-alarm")
+    return transition.animateFloat(
+        initialValue     = 0.35f,
+        targetValue      = 1f,
+        animationSpec    = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label            = "tpms-alarm-pulse"
+    ).value
+}
+
+/**
+ * False when the user has turned animations off in the system settings
+ * (window_animation_scale / transition_animation_scale / animator_duration_scale all at 0), which
+ * is common on slow aftermarket head units. In that case the alarm must be a steady colour at
+ * full strength rather than something that never moves — and a Compose infinite transition on a
+ * weak unit is exactly the kind of thing those users disable animations to avoid.
+ */
+@Composable
+private fun animationsEnabled(): Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        val resolver = context.contentResolver
+        fun scale(key: String) = try {
+            Settings.Global.getFloat(resolver, key, 1f)
+        } catch (_: Settings.SettingNotFoundException) {
+            1f
+        }
+        scale(Settings.Global.ANIMATOR_DURATION_SCALE) > 0f &&
+            scale(Settings.Global.TRANSITION_ANIMATION_SCALE) > 0f &&
+            scale(Settings.Global.WINDOW_ANIMATION_SCALE) > 0f
+    }
+}
+
 @Composable
 private fun TpmsWheelTile(
     position: TirePosition,
@@ -171,7 +239,9 @@ private fun TpmsWheelTile(
     now: Long,
     unit: PressureUnit,
     isMetric: Boolean,
-    lowKpa: Float,
+    isAlarm: Boolean,
+    /** 0..1 breathing fraction from [alarmPulse]; 1f when not alarming or animations are off. */
+    pulse: Float,
     scale: Float,
     contentColor: Color,
     dimColor: Color,
@@ -181,30 +251,36 @@ private fun TpmsWheelTile(
     tileBorder: Color,
     modifier: Modifier = Modifier
 ) {
-    val stale   = reading?.isStale(now) == true
-    val isLow   = reading != null && !reading.noSignal &&
-        reading.pressureKpa > 0f && reading.pressureKpa < lowKpa
-    val leaking = reading?.hasAlarm == true
+    val stale = reading?.isStale(now) == true
 
     val pressureColor = when {
         reading == null || stale -> dimColor
-        leaking || isLow         -> alarmColor
+        isAlarm                  -> alarmColor
         reading.noSignal         -> warnColor
         else                     -> accent
     }
     val subColor = if (stale || reading == null) dimColor else contentColor.copy(alpha = 0.6f)
 
+    // Warning is a slow breath, not a hard red block: the alarm colour only rides in on the
+    // alpha of the border/fill and on the opacity of the whole tile, so the card stays legible
+    // and the eye catches the movement rather than the colour.
+    val tileAlpha = if (isAlarm) 0.45f + 0.55f * pulse else 1f
+
     Column(
         modifier = modifier
-            .border(1.dp, if (isLow || leaking) alarmColor.copy(alpha = 0.55f) else tileBorder,
-                RoundedCornerShape(3.dp))
+            .border(
+                1.dp,
+                if (isAlarm) alarmColor.copy(alpha = 0.25f + 0.30f * pulse) else tileBorder,
+                RoundedCornerShape(3.dp)
+            )
             .clip(RoundedCornerShape(3.dp))
             .background(
                 when {
-                    leaking || isLow -> alarmColor.copy(alpha = 0.10f)
-                    else             -> Color.Transparent
+                    isAlarm -> alarmColor.copy(alpha = 0.04f + 0.08f * pulse)
+                    else    -> Color.Transparent
                 }
             )
+            .graphicsLayer { alpha = tileAlpha }
             .padding(horizontal = 6.dp, vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -267,7 +343,8 @@ private fun subLine(
 private fun TpmsFooter(
     snapshot: TpmsSnapshot,
     now: Long,
-    lowWheels: List<TirePosition>,
+    alarmWheels: List<TirePosition>,
+    pulse: Float,
     accent: Color,
     alarmColor: Color,
     warnColor: Color,
@@ -311,11 +388,11 @@ private fun TpmsFooter(
                 letterSpacing = 1.sp,
                 maxLines      = 1
             )
-            if (lowWheels.isNotEmpty()) {
+            if (alarmWheels.isNotEmpty()) {
                 Text(
-                    text          = "LOW: " + lowWheels.joinToString(" ") { it.shortLabel },
+                    text          = "CHECK: " + alarmWheels.joinToString(" ") { it.shortLabel },
                     fontSize      = 8.5.sp,
-                    color         = alarmColor,
+                    color         = alarmColor.copy(alpha = 0.45f + 0.55f * pulse),
                     fontFamily    = FontFamily.Monospace,
                     fontWeight    = FontWeight.Bold,
                     letterSpacing = 1.sp

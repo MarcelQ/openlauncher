@@ -53,6 +53,8 @@ class SettingsRepository(private val context: Context) {
         val TPMS_AUTO_CONNECT     = booleanPreferencesKey("tpms_auto_connect")
         val TPMS_PRESSURE_UNIT    = stringPreferencesKey("tpms_pressure_unit")
         val TPMS_LOW_PRESSURE_KPA = floatPreferencesKey("tpms_low_pressure_kpa")
+        val TPMS_ALARM_ENABLED    = booleanPreferencesKey("tpms_alarm_enabled")
+        val TPMS_ALARM_SOUND      = booleanPreferencesKey("tpms_alarm_sound")
         val VITALS_AS_BARS        = booleanPreferencesKey("vitals_as_bars")
         val SPEEDOMETER_DIGITAL_ONLY = booleanPreferencesKey("speedometer_digital_only")
         val GRADIENT_DIRECTION    = stringPreferencesKey("gradient_direction")
@@ -190,6 +192,8 @@ class SettingsRepository(private val context: Context) {
                 } ?: defaults.tpmsPressureUnit,
                 tpmsLowPressureKpa = (prefs[Keys.TPMS_LOW_PRESSURE_KPA] ?: defaults.tpmsLowPressureKpa)
                     .coerceIn(PressureUnit.MIN_THRESHOLD_KPA, PressureUnit.MAX_THRESHOLD_KPA),
+                tpmsAlarmEnabled = prefs[Keys.TPMS_ALARM_ENABLED] ?: defaults.tpmsAlarmEnabled,
+                tpmsAlarmSound   = prefs[Keys.TPMS_ALARM_SOUND] ?: defaults.tpmsAlarmSound,
                 soundboardPads   = prefs[Keys.SOUNDBOARD_PADS_JSON]?.let {
                     runCatching {
                         gson.fromJson<List<SoundPadConfig>>(it, object : com.google.gson.reflect.TypeToken<List<SoundPadConfig>>() {}.type)
@@ -253,6 +257,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.TPMS_AUTO_CONNECT]  = s.tpmsAutoConnect
             prefs[Keys.TPMS_PRESSURE_UNIT] = s.tpmsPressureUnit.name
             prefs[Keys.TPMS_LOW_PRESSURE_KPA] = s.tpmsLowPressureKpa
+            prefs[Keys.TPMS_ALARM_ENABLED] = s.tpmsAlarmEnabled
+            prefs[Keys.TPMS_ALARM_SOUND]   = s.tpmsAlarmSound
             prefs[Keys.VITALS_AS_BARS]     = s.vitalsAsBars
             prefs[Keys.SPEEDOMETER_DIGITAL_ONLY] = s.speedometerDigitalOnly
             prefs[Keys.GRADIENT_DIRECTION] = s.gradientDirection.name

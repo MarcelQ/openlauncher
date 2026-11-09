@@ -9,6 +9,7 @@ import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings as AndroidSettings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -50,6 +51,8 @@ import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.service.MediaListenerService
+import com.openlauncher.app.tpms.TpmsChimeCadence
+import com.openlauncher.app.tpms.TpmsChimePlayer
 import com.openlauncher.app.tpms.TpmsRepository
 import com.openlauncher.app.tpms.TpmsSnapshot
 import com.openlauncher.app.util.LocationCompassManager
@@ -600,6 +603,52 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // Audible layer of the low-pressure warning, off by default and opt-in in Settings.
+    // Timing lives in TpmsChimeCadence (pure, JVM-tested); this only feeds it a clock.
+    private val tpmsChimeCadence = TpmsChimeCadence()
+    private val tpmsChimePlayer = TpmsChimePlayer(getApplication())
+
+    init {
+        viewModelScope.launch {
+            var wasSounding = false
+            while (isActive) {
+                val s = settings.value
+                // Nothing to time while the sound is switched off or no TPMS card is on any
+                // page, so idle on a coarse period; once armed, poll at 1 s. That is cheap
+                // (a StateFlow read plus a comparison) and gives the cadence one-second
+                // resolution without reacting to every frame the receiver sends.
+                if (!s.tpmsAlarmEnabled || !s.tpmsAlarmSound || !s.hasWidgetType("TPMS")) {
+                    if (wasSounding) {
+                        wasSounding = false
+                        tpmsChimeCadence.reset()
+                        tpmsChimePlayer.stop()
+                    }
+                    delay(TPMS_CHIME_IDLE_POLL_MS)
+                    continue
+                }
+                delay(TPMS_CHIME_POLL_MS)
+                // Two clocks on purpose. "Is this wheel alarming right now" is a question about
+                // sensor freshness, and readings are stamped with wall time (same as the card),
+                // so it needs System.currentTimeMillis(). The cadence instead needs a monotonic
+                // clock, because a head unit's clock jumps when it syncs from the network or a
+                // GPS fix, and that must not skip or repeat a chime.
+                val wallMs = System.currentTimeMillis()
+                val uptimeMs = SystemClock.elapsedRealtime()
+                // The repository's live snapshot, not the mirrored tpmsSnapshot: that one only
+                // stays fresh while the card is collecting it, and the chime has to follow
+                // exactly the warning the card is showing even when the card is on another page.
+                val alarming = tpms.snapshot.value
+                    .alarmingWheels(s.tpmsLowPressureKpa, alarmEnabled = true, nowMs = wallMs)
+                    .isNotEmpty()
+                if (tpmsChimeCadence.shouldChime(alarming, uptimeMs)) tpmsChimePlayer.play()
+                // Cuts off a chime that is still in flight when the wheel recovers or the user
+                // switches the sound off mid-warning (the cadence resets itself in both cases).
+                if (!alarming && wasSounding) tpmsChimePlayer.stop()
+                wasSounding = alarming
+            }
+        }
+    }
+
     // ── Location & Compass ────────────────────────────────────────────────────
     val location: StateFlow<LocationData?> = locationMgr.location
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -871,6 +920,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     override fun onCleared() {
         super.onCleared()
         locationMgr.stop()
+        tpmsChimePlayer.release()
         radioObserver?.let { getApplication<Application>().contentResolver.unregisterContentObserver(it) }
         radioObserver = null
     }
@@ -896,3 +946,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 }
+
+// Poll periods for the TPMS chime loop in LauncherViewModel. The audible warning is deliberately
+// polled rather than flow-driven: its timing comes from TpmsChimeCadence, and a receiver that
+// reports several times a second would otherwise restart the cadence on every frame.
+private const val TPMS_CHIME_POLL_MS = 1_000L
+private const val TPMS_CHIME_IDLE_POLL_MS = 5_000L
+

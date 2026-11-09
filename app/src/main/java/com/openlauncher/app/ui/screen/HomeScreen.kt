@@ -713,6 +713,7 @@ private fun WidgetPageGrid(
                         isMetric       = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC,
                         isDayMode      = isDayMode,
                         isEditing      = editMode,
+                        alarmEnabled   = settings.tpmsAlarmEnabled,
                         onConnect      = onTpmsConnect,
                         modifier       = Modifier.fillMaxSize()
                     )

@@ -118,9 +118,19 @@ enum class PressureUnit(val label: String) {
     companion object {
         const val PSI_PER_KPA = 0.145038f
 
-        /** Alarm threshold bounds, stored as kPa regardless of the display unit. */
-        const val MIN_THRESHOLD_KPA = 100f
+        /**
+         * Alarm threshold bounds, stored as kPa regardless of the display unit.
+         *
+         * The lower bound is 10 kPa = 0.1 bar, i.e. one tenth of a bar above zero, so the
+         * slider can be set as gently as a driver warming up a flat-looking corner needs.
+         * The upper bound (4 bar / 58 psi) still covers an over-inflated motorhome or
+         * trailer tyre. Every detent is one tenth of a bar (see [THRESHOLD_STEP_KPA]).
+         */
+        const val MIN_THRESHOLD_KPA = 10f
         const val MAX_THRESHOLD_KPA = 400f
+
+        /** One detent of the threshold slider in every unit: 0.1 bar, 10 kPa, ~1.45 psi. */
+        const val THRESHOLD_STEP_KPA = 10f
     }
 }
 
@@ -143,10 +153,39 @@ data class TpmsSnapshot(
 
     fun reading(pos: TirePosition): TireReading? = readings[pos]
 
-    /** Wheels whose pressure is below [lowPressureKpa], ignoring sensors with no data. */
+    /**
+     * Wheels whose pressure is below [lowPressureKpa], ignoring sensors with no usable
+     * data. A stale reading is ignored too: after the receiver is unplugged the last-known
+     * values stay on screen dimmed, but a sensor we can no longer hear from must not keep
+     * the card flashing or the chime running on months-old pressure.
+     */
     fun lowPressureWheels(lowPressureKpa: Float, nowMs: Long = System.currentTimeMillis()): List<TirePosition> =
         readings.values
-            .filter { !it.noSignal && it.pressureKpa > 0f && it.pressureKpa < lowPressureKpa }
+            .filter { !it.noSignal && !it.isStale(nowMs) && it.pressureKpa > 0f && it.pressureKpa < lowPressureKpa }
             .sortedBy { it.position.rawCode }
             .map { it.position }
+
+    /**
+     * Wheels that should be made obvious right now: below the limit, still fresh, and only
+     * while the alarm is switched on.
+     *
+     * A sensor reporting exactly 0 kPa is treated as "no usable value" rather than as a
+     * flat tyre, which is what lets the threshold go as low as 0.1 bar without the card
+     * screaming about wheels the receiver has simply never heard from. The same guard also
+     * keeps [TireReading.hasAlarm] (a sensor's own leak flag) as the only way a 0 kPa
+     * reading can turn red.
+     */
+    fun alarmingWheels(
+        lowPressureKpa: Float,
+        alarmEnabled: Boolean = true,
+        nowMs: Long = System.currentTimeMillis()
+    ): List<TirePosition> {
+        if (!alarmEnabled) return emptyList()
+        val low = lowPressureWheels(lowPressureKpa, nowMs)
+        val leaking = readings.values
+            .filter { !it.noSignal && !it.isStale(nowMs) && it.hasAlarm }
+            .sortedBy { it.position.rawCode }
+            .map { it.position }
+        return (low + leaking).distinct().sortedBy { it.rawCode }
+    }
 }

@@ -43,6 +43,7 @@ import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.util.SunriseSunset
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import com.openlauncher.app.ui.components.ColorPickerDialog
 import com.openlauncher.app.ui.components.ConfirmDialog
 
@@ -802,35 +803,75 @@ fun SettingsScreen(
 
             SettingsDivider()
 
-            // Threshold is stored in kPa (see AppSettings.tpmsLowPressureKpa); the slider works
-            // in the selected display unit and converts on write, so switching units later
-            // cannot move the alarm point.
-            Column(modifier = Modifier.padding(bottom = 8.dp)) {
+            // The warning switch is the one place the "make this obvious" decision is made; the
+            // card and the chime both read it (TpmsSnapshot.alarmingWheels).
+            SettingsRow(
+                label    = "Low pressure warning",
+                sublabel = "Warn when a wheel reads below ${pressureUnit.formatWithUnit(settings.tpmsLowPressureKpa)}, " +
+                    "or when a sensor reports a leak. Off = the card still shows pressures, but " +
+                    "nothing flashes and nothing sounds.",
+                icon     = Icons.Default.Warning
+            ) {
+                Switch(
+                    checked         = settings.tpmsAlarmEnabled,
+                    onCheckedChange = { onUpdate { copy(tpmsAlarmEnabled = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            if (settings.tpmsAlarmEnabled) {
+                SettingsDivider()
+
                 SettingsRow(
-                    label    = "Low pressure alarm",
-                    sublabel = "Card turns red below ${pressureUnit.formatWithUnit(settings.tpmsLowPressureKpa)}",
-                    icon     = Icons.Default.Warning
-                ) {}
-                val lo = pressureUnit.fromKpa(PressureUnit.MIN_THRESHOLD_KPA)
-                val hi = pressureUnit.fromKpa(PressureUnit.MAX_THRESHOLD_KPA)
-                Slider(
-                    value         = pressureUnit.fromKpa(settings.tpmsLowPressureKpa).coerceIn(lo, hi),
-                    onValueChange = { v ->
-                        onUpdate { copy(tpmsLowPressureKpa = pressureUnit.toKpa(v).coerceIn(
-                            PressureUnit.MIN_THRESHOLD_KPA, PressureUnit.MAX_THRESHOLD_KPA)) }
-                    },
-                    valueRange    = lo..hi,
-                    steps         = tpmsThresholdSteps(pressureUnit),
-                    colors        = sliderColors(accent),
-                    modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                )
-                Text(
-                    text       = "Not yet calibrated against a gauge — expect up to 0.2 bar error " +
-                        "until the receiver's sensor offset is verified on the vehicle.",
-                    fontSize   = 10.sp,
-                    color      = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                    modifier   = Modifier.padding(horizontal = 16.dp)
-                )
+                    label    = "Sound the alarm",
+                    sublabel = "Also play a short two-note chime: a few seconds after the card starts warning, " +
+                        "then roughly every 30 s, thinning out on a long trip. Off = visual warning only.",
+                    icon     = Icons.Default.VolumeUp
+                ) {
+                    Switch(
+                        checked         = settings.tpmsAlarmSound,
+                        onCheckedChange = { onUpdate { copy(tpmsAlarmSound = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                SettingsDivider()
+
+                // Threshold is stored in kPa (see AppSettings.tpmsLowPressureKpa); the slider works
+                // in the selected display unit and converts on write, so switching units later
+                // cannot move the alarm point.
+                Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                    SettingsRow(
+                        label    = "Warn below",
+                        sublabel = "The warned tile breathes slowly in the warning colour — no full-red block",
+                        icon     = Icons.Default.Speed
+                    ) {}
+                    val lo = pressureUnit.fromKpa(PressureUnit.MIN_THRESHOLD_KPA)
+                    val hi = pressureUnit.fromKpa(PressureUnit.MAX_THRESHOLD_KPA)
+                    Slider(
+                        value         = pressureUnit.fromKpa(settings.tpmsLowPressureKpa).coerceIn(lo, hi),
+                        onValueChange = { v ->
+                            // Snap to whole detents after converting back to kPa, so a psi slider
+                            // cannot leave the stored value at e.g. 207.3 kPa.
+                            val kpa = (pressureUnit.toKpa(v) / PressureUnit.THRESHOLD_STEP_KPA)
+                                .roundToInt() * PressureUnit.THRESHOLD_STEP_KPA
+                            onUpdate { copy(tpmsLowPressureKpa = kpa.coerceIn(
+                                PressureUnit.MIN_THRESHOLD_KPA, PressureUnit.MAX_THRESHOLD_KPA)) }
+                        },
+                        valueRange    = lo..hi,
+                        steps         = tpmsThresholdSteps(),
+                        colors        = sliderColors(accent),
+                        modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    )
+                    Text(
+                        text       = "Detents are ${pressureUnit.formatWithUnit(PressureUnit.THRESHOLD_STEP_KPA)}. " +
+                            "Not yet calibrated against a gauge — expect up to 0.2 bar error until " +
+                            "the receiver's sensor offset is verified on the vehicle.",
+                        fontSize   = 10.sp,
+                        color      = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                        modifier   = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
             }
         }
 
@@ -1212,12 +1253,16 @@ private fun fontDisplayName(font: AppFont): String = when (font) {
 }
 
 /**
- * Slider detents for the TPMS low-pressure alarm. The span is always 300 kPa
- * ([PressureUnit.MIN_THRESHOLD_KPA]..[MAX_THRESHOLD_KPA]) expressed in the selected unit:
- * 0.1 bar, 10 kPa and roughly 3 psi steps.
+ * Slider detents for the TPMS warn-below slider. Compose's `steps` counts the points *between*
+ * the two endpoints, hence the minus one.
+ *
+ * Deliberately unit-independent: the span and the detent are both defined in kPa
+ * ([PressureUnit.MIN_THRESHOLD_KPA]..[PressureUnit.MAX_THRESHOLD_KPA] in jumps of
+ * [PressureUnit.THRESHOLD_STEP_KPA]), and the slider's endpoints are that same span converted to
+ * the display unit — so one detent is 0.1 bar, 10 kPa or ~1.45 psi either way.
  */
-private fun tpmsThresholdSteps(unit: PressureUnit): Int = when (unit) {
-    PressureUnit.BAR -> 29
-    PressureUnit.KPA -> 29
-    PressureUnit.PSI -> 14
+private fun tpmsThresholdSteps(): Int {
+    val detents = ((PressureUnit.MAX_THRESHOLD_KPA - PressureUnit.MIN_THRESHOLD_KPA) /
+        PressureUnit.THRESHOLD_STEP_KPA).roundToInt()
+    return (detents - 1).coerceAtLeast(0)
 }
