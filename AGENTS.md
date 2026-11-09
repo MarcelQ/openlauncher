@@ -9,7 +9,9 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
 - Prefer small, reviewable changes. Explain the plan before multi-file refactors.
 - Do not silently change package IDs, signing, min/target SDK, Gradle/AGP/Kotlin versions, or app permissions.
 - Preserve offline-first behaviour and compatibility with aftermarket Android head units, including older Android versions where the project supports them.
-- Unit tests exist for the TPMS wire protocol (`app\src\test\java\com\openlauncher\app\tpms\`)
+- Unit tests exist for the TPMS wire protocol, the low-pressure alarm decision
+  (`TpmsAlarmLogicTest.kt`) and the chime cadence (`TpmsChimeCadenceTest.kt`)
+  (`app\src\test\java\com\openlauncher\app\tpms\`)
   and for the multi-page widget grid engine — placement, page resize guards, duplicate
   instance ids, legacy migration (`app\src\test\java\com\openlauncher\app\data\GridLayoutTest.kt`;
   the engine itself lives in `app\src\main\java\com\openlauncher\app\data\GridLayout.kt`, framework-free).
