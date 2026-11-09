@@ -44,7 +44,7 @@ class TpmsAlarmLogicTest {
 
     @Test
     fun thresholdRangeIsWholeTenthsOfBar() {
-        assertEquals(10f, PressureUnit.MIN_THRESHOLD_KPA, 0f)
+        assertEquals(0f, PressureUnit.MIN_THRESHOLD_KPA, 0f)
         assertEquals(400f, PressureUnit.MAX_THRESHOLD_KPA, 0f)
         // One detent = 0.1 bar exactly, so slider stops land on clean bar values.
         assertEquals(10f, PressureUnit.THRESHOLD_STEP_KPA, 0f)
@@ -54,15 +54,15 @@ class TpmsAlarmLogicTest {
     fun everyDetentFormatsAsCleanBarValue() {
         val stops = ((PressureUnit.MAX_THRESHOLD_KPA - PressureUnit.MIN_THRESHOLD_KPA) /
             PressureUnit.THRESHOLD_STEP_KPA).toInt() + 1
-        assertEquals(40, stops)
+        assertEquals(41, stops)
 
         val formatted = (0 until stops).map { i ->
             PressureUnit.BAR.format(
                 PressureUnit.MIN_THRESHOLD_KPA + i * PressureUnit.THRESHOLD_STEP_KPA
             )
         }
-        assertEquals("0.1", formatted.first())
-        assertEquals("2.2", formatted[21])
+        assertEquals("0.0", formatted.first())
+        assertEquals("2.2", formatted[22])
         assertEquals("4.0", formatted.last())
         // No float dust: every stop prints as X.Y, nothing longer.
         formatted.forEach { assertTrue("unexpected bar text '$it'", it.matches(Regex("""\d+\.\d"""))) }
@@ -82,12 +82,18 @@ class TpmsAlarmLogicTest {
     // ── alarmingWheels matrix ─────────────────────────────────────────────────
 
     @Test
-    fun belowLimitAlarmsAtOrBelowOneTenthBarAboveZero() {
+    fun lowestSettingSilencesPressureFloorButNotLeakFlag() {
         assertEquals(listOf(TirePosition.FRONT_LEFT), alarming(reading(TirePosition.FRONT_LEFT, 219.9f)))
-        // The lowest possible setting is 0.1 bar; anything under it still alarms.
+        // The lowest possible setting is 0.0 bar: no pressure can read below it, so the
+        // floor is silent; a sensor's own leak flag must still raise the alarm.
+        assertEquals(
+            emptyList<TirePosition>(),
+            snapshot(reading(TirePosition.FRONT_LEFT, 9f))
+                .alarmingWheels(PressureUnit.MIN_THRESHOLD_KPA, true, now)
+        )
         assertEquals(
             listOf(TirePosition.FRONT_LEFT),
-            snapshot(reading(TirePosition.FRONT_LEFT, 9f))
+            snapshot(reading(TirePosition.FRONT_LEFT, 0f, hasAlarm = true))
                 .alarmingWheels(PressureUnit.MIN_THRESHOLD_KPA, true, now)
         )
     }
@@ -111,7 +117,7 @@ class TpmsAlarmLogicTest {
 
     @Test
     fun zeroAndNoSignalAreNoDataNotFlatTyres() {
-        // This guard is what makes a 0.1 bar threshold safe: wheels the receiver has
+        // This guard is what makes a 0.0 bar threshold safe: wheels the receiver has
         // never heard from report 0 kPa and must not turn the card red.
         assertEquals(emptyList<TirePosition>(), alarming(reading(TirePosition.FRONT_LEFT, 0f)))
         assertEquals(

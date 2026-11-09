@@ -121,12 +121,11 @@ enum class PressureUnit(val label: String) {
         /**
          * Alarm threshold bounds, stored as kPa regardless of the display unit.
          *
-         * The lower bound is 10 kPa = 0.1 bar, i.e. one tenth of a bar above zero, so the
-         * slider can be set as gently as a driver warming up a flat-looking corner needs.
-         * The upper bound (4 bar / 58 psi) still covers an over-inflated motorhome or
+         * The lower bound is 0 kPa, so the slider reaches a completely silent setting;
+         * the upper bound (4 bar / 58 psi) still covers an over-inflated motorhome or
          * trailer tyre. Every detent is one tenth of a bar (see [THRESHOLD_STEP_KPA]).
          */
-        const val MIN_THRESHOLD_KPA = 10f
+        const val MIN_THRESHOLD_KPA = 0f
         const val MAX_THRESHOLD_KPA = 400f
 
         /** One detent of the threshold slider in every unit: 0.1 bar, 10 kPa, ~1.45 psi. */
