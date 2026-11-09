@@ -222,7 +222,7 @@ class MainActivity : ComponentActivity() {
                                             val pkg = nowPlaying?.controller?.packageName
                                             if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
                                         },
-                                        onUpdateWidget      = { id, sx, sy -> vm.updateWidgetConfig(id, sx, sy) },
+                                        onResizeWidget      = { id, gx, gy, sx, sy -> vm.resizeWidget(id, gx, gy, sx, sy) },
                                         onMoveWidget        = { id, gx, gy -> vm.moveWidgetConfig(id, gx, gy) },
                                         onAddWidget         = { type, page -> vm.addWidget(type, page) },
                                         onRemoveWidget      = { id -> vm.removeWidget(id) },

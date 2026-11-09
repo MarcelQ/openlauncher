@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -47,7 +49,9 @@ import com.openlauncher.app.data.MAX_PAGES
 import com.openlauncher.app.data.MAX_ROWS
 import com.openlauncher.app.data.MIN_COLS
 import com.openlauncher.app.data.MIN_ROWS
+import com.openlauncher.app.data.ResizeCorner
 import com.openlauncher.app.data.WidgetInstance
+import com.openlauncher.app.data.computeCornerResize
 import com.openlauncher.app.data.computeWidgetMove
 import com.openlauncher.app.data.instancesOnPage
 import com.openlauncher.app.data.resizePageLayout
@@ -59,6 +63,10 @@ import java.util.Calendar
 import com.openlauncher.app.util.LocationData
 
 private val WIDGET_RADIUS = RoundedCornerShape(0.dp)
+
+// Corner-drag resize handles (edit mode): 22dp touch target, 12dp visible square
+private val RESIZE_HANDLE_SIZE = 22.dp
+private val RESIZE_HANDLE_DOT  = 12.dp
 
 // Card header labels (the small "VOLUME" caption) are hidden below this cell
 // height; VolumeWidget/BrightnessWidget switch to compact layouts around the
@@ -140,7 +148,7 @@ fun HomeScreen(
     onClearPip: () -> Unit,
     onLaunchPip: () -> Unit,
     onTapNowPlaying: () -> Unit,
-    onUpdateWidget: (id: String, spanX: Int, spanY: Int) -> Unit,
+    onResizeWidget: (id: String, gridX: Int, gridY: Int, spanX: Int, spanY: Int) -> Unit,
     onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
     onAddWidget: (type: String, page: Int) -> Unit,
     onRemoveWidget: (id: String) -> Unit,
@@ -185,7 +193,6 @@ fun HomeScreen(
     val controlIconColor  = if (isDayMode) Color(0xFF666666) else Color(0xFF444444)
 
     var contextMenuId by remember { mutableStateOf<String?>(null) }
-    var resizingId    by remember { mutableStateOf<String?>(null) }
 
     val configuration    = LocalConfiguration.current
     val isLandscape      = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -279,6 +286,7 @@ fun HomeScreen(
                     tpms          = tpms,
                     hardwareRadio = hardwareRadio,
                     onMoveWidget  = onMoveWidget,
+                    onResizeWidget = onResizeWidget,
                     onOpenMenu    = { contextMenuId = it },
                     onPlayPause   = onPlayPause,
                     onNext        = onNext,
@@ -338,7 +346,6 @@ fun HomeScreen(
                 androidAutoPackage  = settings.androidAutoPackage,
                 pipAppPackage       = settings.pipAppPackage,
                 isDayMode           = isDayMode,
-                onResize            = { contextMenuId = null; resizingId = id },
                 onRemove            = { contextMenuId = null; onRemoveWidget(id) },
                 onMoveToPage        = { p -> contextMenuId = null; onMoveWidgetToPage(id, p) },
                 onAssignCarPlay     = { contextMenuId = null; onAssignCarPlay() },
@@ -358,24 +365,6 @@ fun HomeScreen(
                 onSetBrightnessAuto      = { onSetBrightnessAuto(it) },
                 onSetBrightnessLevel     = { slot, pct -> onSetBrightnessLevel(slot, pct) },
                 onDismiss           = { contextMenuId = null }
-            )
-        }
-    }
-
-    // ── Resize dialog ────────────────────────────────────────────────────────
-    resizingId?.let { id ->
-        val config = settings.widgets.find { it.id == id }
-        if (config != null) {
-            WidgetResizeDialog(
-                config    = config,
-                page      = settings.pages.getOrElse(config.page) { GridPage() },
-                accent    = accent,
-                isDayMode = isDayMode,
-                onDismiss = { resizingId = null },
-                onConfirm = { sx, sy ->
-                    onUpdateWidget(id, sx, sy)
-                    resizingId = null
-                }
             )
         }
     }
@@ -434,6 +423,7 @@ private fun WidgetPageGrid(
     tpms: com.openlauncher.app.tpms.TpmsSnapshot,
     hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState?,
     onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
+    onResizeWidget: (id: String, gridX: Int, gridY: Int, spanX: Int, spanY: Int) -> Unit,
     onOpenMenu: (id: String) -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -474,6 +464,11 @@ private fun WidgetPageGrid(
         var draggingId   by remember { mutableStateOf<String?>(null) }
         var dragOffsetPx by remember { mutableStateOf(Offset.Zero) }
 
+        // ── Corner-resize state ──────────────────────────────────────────
+        var resizingId    by remember { mutableStateOf<String?>(null) }
+        var resizeCorner  by remember { mutableStateOf(ResizeCorner.BOTTOM_END) }
+        var resizeDeltaPx by remember { mutableStateOf(Offset.Zero) }
+
         // Compute snap target for the widget being dragged (uses original spanX)
         val draggingOriginal = if (draggingId != null) visible.find { it.id == draggingId } else null
         val targetGridX = draggingOriginal?.let {
@@ -487,6 +482,17 @@ private fun WidgetPageGrid(
         val proposedLayout = if (draggingOriginal != null && targetGridX != null && targetGridY != null)
             computeWidgetMove(visible, draggingOriginal.id, targetGridX, targetGridY, page.cols, page.rows)
         else null
+
+        // Live corner-resize preview: the handle gesture keeps resizeDeltaPx current;
+        // the engine snaps to cells, clamps to bounds and never overlaps neighbours.
+        val proposedResize = resizingId?.let { id ->
+            computeCornerResize(
+                visible, id, resizeCorner,
+                (resizeDeltaPx.x / cellStepXPx).roundToInt(),
+                (resizeDeltaPx.y / cellStepYPx).roundToInt(),
+                page.cols, page.rows
+            )
+        }
 
         // Drop ghost — rendered before widgets so it appears beneath them
         if (draggingOriginal != null && targetGridX != null && targetGridY != null) {
@@ -525,10 +531,12 @@ private fun WidgetPageGrid(
         }
 
         visible.forEach { w ->
-            val xOff   = (cellW + gap) * w.gridX
-            val yOff   = (cellH + gap) * w.gridY
-            val width  = cellW * w.spanX + gap * (w.spanX - 1)
-            val height = cellH * w.spanY + gap * (w.spanY - 1)
+            // While a corner drag is active, preview the proposed geometry live
+            val geom   = proposedResize?.takeIf { it.id == w.id } ?: w
+            val xOff   = (cellW + gap) * geom.gridX
+            val yOff   = (cellH + gap) * geom.gridY
+            val width  = cellW * geom.spanX + gap * (geom.spanX - 1)
+            val height = cellH * geom.spanY + gap * (geom.spanY - 1)
 
             val isDragging = draggingId == w.id
             // Weather with no data reserves its cell but draws nothing
@@ -735,6 +743,66 @@ private fun WidgetPageGrid(
                 }
             }
         }
+
+        // ── Corner resize handles (edit mode only) ───────────────────────
+        // Drawn as siblings of the cards so the card clip never eats them.
+        // zIndex(2f) puts them above cards in draw AND hit order.
+        if (editMode) {
+            visible.forEach { w ->
+                val geom   = proposedResize?.takeIf { it.id == w.id } ?: w
+                val left   = (cellW + gap) * geom.gridX
+                val top    = (cellH + gap) * geom.gridY
+                val right  = left + cellW * geom.spanX + gap * (geom.spanX - 1)
+                val bottom = top + cellH * geom.spanY + gap * (geom.spanY - 1)
+                for (corner in ResizeCorner.entries) {
+                    val cx = if (corner == ResizeCorner.TOP_START || corner == ResizeCorner.BOTTOM_START) left else right
+                    val cy = if (corner == ResizeCorner.TOP_START || corner == ResizeCorner.TOP_END)     top  else bottom
+                    Box(
+                        modifier = Modifier
+                            .zIndex(2f)
+                            .absoluteOffset(cx - RESIZE_HANDLE_SIZE / 2, cy - RESIZE_HANDLE_SIZE / 2)
+                            .size(RESIZE_HANDLE_SIZE)
+                            // Keyed only on drag-stable values: the live preview moves
+                            // the handle mid-drag but must never restart the gesture.
+                            .pointerInput(editMode, w.id, corner, w.gridX, w.gridY, w.spanX, w.spanY) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown()
+                                    // Consume so the card click / long-press-drag below
+                                    // never fires for touches that start on a handle.
+                                    down.consume()
+                                    resizingId    = w.id
+                                    resizeCorner  = corner
+                                    resizeDeltaPx = Offset.Zero
+                                    var delta = Offset.Zero
+                                    while (true) {
+                                        val event  = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id }
+                                        event.changes.forEach { it.consume() }
+                                        if (change == null || !change.pressed) break
+                                        delta         = change.position - down.position
+                                        resizeDeltaPx = delta
+                                    }
+                                    val dx = (delta.x / cellStepXPx).roundToInt()
+                                    val dy = (delta.y / cellStepYPx).roundToInt()
+                                    if (dx != 0 || dy != 0) {
+                                        val r = computeCornerResize(visible, w.id, corner, dx, dy, page.cols, page.rows)
+                                        if (r != null) onResizeWidget(r.id, r.gridX, r.gridY, r.spanX, r.spanY)
+                                    }
+                                    resizingId    = null
+                                    resizeDeltaPx = Offset.Zero
+                                }
+                            }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(RESIZE_HANDLE_DOT)
+                                .background(accent)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -934,7 +1002,6 @@ private fun WidgetContextMenu(
     androidAutoPackage: String = "",
     pipAppPackage: String = "",
     isDayMode: Boolean,
-    onResize: () -> Unit,
     onRemove: () -> Unit,
     onMoveToPage: (Int) -> Unit,
     onAssignCarPlay: () -> Unit,
@@ -968,7 +1035,6 @@ private fun WidgetContextMenu(
                 .width(200.dp)
         ) {
             val inactiveMenuTint = if (isDayMode) Color(0xFF777777) else Color(0xFF555555)
-            ContextRow("RESIZE", Icons.Default.OpenWith, accent, onResize, isDayMode = isDayMode)
             // Page moves — one row per other page (up to MAX_PAGES, so bounded)
             if (pages.size > 1) {
                 pages.indices.filter { it != pageIndex }.forEach { target ->
@@ -1174,56 +1240,6 @@ private fun BrightnessLevelRow(
 }
 
 @Composable
-private fun WidgetResizeDialog(
-    config: WidgetInstance,
-    page: GridPage,
-    accent: Color,
-    isDayMode: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: (spanX: Int, spanY: Int) -> Unit
-) {
-    var spanX by remember(config.id) { mutableStateOf(config.spanX) }
-    var spanY by remember(config.id) { mutableStateOf(config.spanY) }
-
-    val maxSpanX = page.cols - config.gridX
-    val maxSpanY = page.rows - config.gridY
-
-    val dialogBg     = if (isDayMode) Color(0xFFFFFFFF) else MaterialTheme.colorScheme.background
-    val dialogText   = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val cancelColor  = if (isDayMode) Color(0xFF6C757D) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text          = config.type.replace('_', ' '),
-                color         = dialogText,
-                fontSize      = 11.sp,
-                letterSpacing = 2.sp
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                SpanRow(label = "WIDTH",  value = spanX, min = 1, max = maxSpanX, accent = accent, isDayMode = isDayMode) { spanX = it }
-                SpanRow(label = "HEIGHT", value = spanY, min = 1, max = maxSpanY, accent = accent, isDayMode = isDayMode) { spanY = it }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(spanX, spanY) }) {
-                Text("APPLY", color = accent, fontSize = 11.sp, letterSpacing = 1.sp)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("CANCEL", color = cancelColor, fontSize = 11.sp, letterSpacing = 1.sp)
-            }
-        },
-        containerColor    = dialogBg,
-        titleContentColor = dialogText,
-        textContentColor  = dialogText
-    )
-}
-
-@Composable
 private fun SpanRow(
     label: String,
     value: Int,
@@ -1357,7 +1373,7 @@ private fun WidgetLibraryDialog(
             Spacer(Modifier.height(10.dp))
             Text(
                 text          = if (canAdd)
-                    "TAPPING A CARD ADDS IT TO PAGE ${pageIndex + 1} — DUPLICATES ARE ALLOWED. LONG-PRESS A CARD TO MOVE, RESIZE OR REMOVE IT."
+                    "TAPPING A CARD ADDS IT TO PAGE ${pageIndex + 1} — DUPLICATES ARE ALLOWED. DRAG A CORNER HANDLE TO RESIZE, LONG-PRESS A CARD TO MOVE OR REMOVE IT."
                 else
                     "ALL ${dims.cols * dims.rows} CELLS ON PAGE ${pageIndex + 1} ARE OCCUPIED — LONG-PRESS A CARD TO MOVE OR REMOVE IT, OR PICK A BIGGER GRID.",
                 color         = when {

@@ -270,26 +270,27 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun clearPipApp()          { updateSettings { copy(pipAppPackage = "") } }
     fun clearRadioApp()        { updateSettings { copy(radioPackage = "") } }
 
-    fun updateWidgetConfig(id: String, spanX: Int, spanY: Int) {
+    /**
+     * Commit a corner-drag resize: the UI already ran [computeCornerResize] live during the
+     * drag, so the geometry arriving here is final. Clamped defensively against the page
+     * bounds; no neighbour pushing (the engine never produces overlapping layouts).
+     */
+    fun resizeWidget(id: String, gridX: Int, gridY: Int, spanX: Int, spanY: Int) {
         updateSettings {
             val inst = widgets.find { it.id == id } ?: return@updateSettings this
             val pageIndex = inst.page.coerceIn(0, pages.lastIndex)
             val dims      = pages[pageIndex]
-            val onPage    = instancesOnPage(widgets, pageIndex)
-            val others    = widgets.filter { it.page != pageIndex }
-
-            val resized = onPage.map { w ->
-                if (w.id == id) w.copy(
-                    spanX = spanX.coerceIn(1, dims.cols - w.gridX),
-                    spanY = spanY.coerceIn(1, dims.rows - w.gridY)
-                ) else w
-            }
-            // Re-run collision resolution so enlarging a card pushes neighbors
-            // aside instead of stacking on top of them
-            val target = resized.find { it.id == id }
-            copy(widgets = others + (if (target != null)
-                computeWidgetMove(resized, id, target.gridX, target.gridY, dims.cols, dims.rows)
-            else resized))
+            val sx = spanX.coerceIn(1, dims.cols)
+            val sy = spanY.coerceIn(1, dims.rows)
+            copy(widgets = widgets.map { w ->
+                if (w.id != id) w
+                else w.copy(
+                    gridX = gridX.coerceIn(0, dims.cols - sx),
+                    gridY = gridY.coerceIn(0, dims.rows - sy),
+                    spanX = sx,
+                    spanY = sy
+                )
+            })
         }
     }
 

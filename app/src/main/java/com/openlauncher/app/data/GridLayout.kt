@@ -117,6 +117,88 @@ fun computeWidgetMove(
     return result
 }
 
+/** Which corner of a card the user grabs to resize it. */
+enum class ResizeCorner { TOP_START, TOP_END, BOTTOM_START, BOTTOM_END }
+
+private fun cellsOf(widgets: List<WidgetInstance>): Set<Pair<Int, Int>> = buildSet {
+    widgets.forEach { w ->
+        for (dx in 0 until w.spanX) for (dy in 0 until w.spanY) add(w.gridX + dx to w.gridY + dy)
+    }
+}
+
+private fun intersectsCellSet(x: Int, y: Int, sx: Int, sy: Int, blocked: Set<Pair<Int, Int>>): Boolean {
+    for (dx in 0 until sx) for (dy in 0 until sy) if (x + dx to y + dy in blocked) return true
+    return false
+}
+
+/**
+ * Live corner-resize: drags one corner of [resizingId] by [dCellsX]×[dCellsY] snapped
+ * cells. The two edges that meet at the grabbed corner follow the finger; the two
+ * opposite edges stay put. Clamped to the page bounds and a minimum 1×1. Unlike
+ * [computeWidgetMove] resizing never pushes neighbours — an expansion that would
+ * overlap another card backs off to the largest collision-free candidate (never
+ * below the original rectangle) so the card simply stops growing against neighbours.
+ * Returns null only when [resizingId] is not on the page.
+ */
+fun computeCornerResize(
+    layout: List<WidgetInstance>,
+    resizingId: String,
+    corner: ResizeCorner,
+    dCellsX: Int,
+    dCellsY: Int,
+    cols: Int,
+    rows: Int
+): WidgetInstance? {
+    val w = layout.find { it.id == resizingId } ?: return null
+
+    val moveLeft = corner == ResizeCorner.TOP_START || corner == ResizeCorner.BOTTOM_START
+    val moveTop  = corner == ResizeCorner.TOP_START || corner == ResizeCorner.TOP_END
+
+    var x  = w.gridX
+    var y  = w.gridY
+    var sx = w.spanX
+    var sy = w.spanY
+
+    if (moveLeft) {
+        x  = (x + dCellsX).coerceIn(0, w.gridX + w.spanX - 1)
+        sx = w.gridX + w.spanX - x
+    } else {
+        sx = (sx + dCellsX).coerceIn(1, cols - w.gridX)
+    }
+    if (moveTop) {
+        y  = (y + dCellsY).coerceIn(0, w.gridY + w.spanY - 1)
+        sy = w.gridY + w.spanY - y
+    } else {
+        sy = (sy + dCellsY).coerceIn(1, rows - w.gridY)
+    }
+
+    // Undo expansions that hit neighbours: keep the largest clear candidate, wider
+    // first on area ties. The original rectangle is the fallback — it was
+    // collision-free (unless the stored layout itself overlaps), so the card can
+    // never end up smaller than it started and never overlaps a neighbour.
+    val blocked = cellsOf(layout.filterNot { it.id == resizingId })
+    if (intersectsCellSet(x, y, sx, sy, blocked)) {
+        var bx  = w.gridX
+        var by  = w.gridY
+        var bsx = w.spanX
+        var bsy = w.spanY
+        for (sx2 in sx downTo w.spanX) {
+            for (sy2 in sy downTo w.spanY) {
+                if (sx2 == w.spanX && sy2 == w.spanY) continue // fallback, already best
+                if (sx2 * sy2 <= bsx * bsy) continue           // not an improvement
+                val x2 = if (moveLeft) w.gridX + w.spanX - sx2 else x
+                val y2 = if (moveTop)  w.gridY + w.spanY - sy2 else y
+                if (!intersectsCellSet(x2, y2, sx2, sy2, blocked)) {
+                    bx = x2; by = y2; bsx = sx2; bsy = sy2
+                }
+            }
+        }
+        x = bx; y = by; sx = bsx; sy = bsy
+    }
+
+    return w.copy(gridX = x, gridY = y, spanX = sx, spanY = sy)
+}
+
 /**
  * Re-flows the instances of a page onto a new [newCols]×[newRows] grid:
  * spans larger than the page are shrunk first, then cards are re-placed

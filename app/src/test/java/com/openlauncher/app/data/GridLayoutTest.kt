@@ -92,6 +92,171 @@ class GridLayoutTest {
         assertTrue(tall.gridX + tall.spanX <= 4)
     }
 
+    // ── corner resize (drag handles in edit mode) ────────────────────────────
+
+    private fun cells(widgets: List<WidgetInstance>) = buildSet {
+        widgets.forEach { wd ->
+            for (dx in 0 until wd.spanX) for (dy in 0 until wd.spanY) add(wd.gridX + dx to wd.gridY + dy)
+        }
+    }
+
+    @Test
+    fun cornerResizeReturnsNullForUnknownId() {
+        val page = listOf(w("A", x = 0, y = 0))
+        assertNull(computeCornerResize(page, "GHOST", ResizeCorner.BOTTOM_END, 1, 1, cols = 3, rows = 2))
+    }
+
+    @Test
+    fun endCornerGrowsSpanOriginStays() {
+        val page = listOf(w("A", x = 1, y = 1))
+        val r = computeCornerResize(page, "A", ResizeCorner.BOTTOM_END, 1, 1, cols = 4, rows = 4)!!
+        assertEquals((1 to 1), (r.gridX to r.gridY))
+        assertEquals((2 to 2), (r.spanX to r.spanY))
+    }
+
+    @Test
+    fun endCornerShrinks() {
+        val page = listOf(w("A", x = 1, y = 1, sx = 2, sy = 2))
+        val r = computeCornerResize(page, "A", ResizeCorner.BOTTOM_END, -1, -1, cols = 4, rows = 4)!!
+        assertEquals((1 to 1), (r.gridX to r.gridY))
+        assertEquals((1 to 1), (r.spanX to r.spanY))
+    }
+
+    @Test
+    fun startCornerMovesOriginFarEdgeStays() {
+        // TOP_START: right edge (x+sx = 4) and bottom edge (y+sy = 4) must stay put
+        val page = listOf(w("A", x = 1, y = 1, sx = 2, sy = 2))
+        val r = computeCornerResize(page, "A", ResizeCorner.TOP_START, -1, -1, cols = 4, rows = 4)!!
+        assertEquals((0 to 0), (r.gridX to r.gridY))
+        assertEquals((3 to 3), (r.spanX to r.spanY))
+    }
+
+    @Test
+    fun bottomStartCornerMovesLeftAndBottomEdgesOnly() {
+        // Grabbing the bottom-left corner: only the left and bottom edges follow
+        // the finger; top and right stay put, so X moves but Y does not.
+        val page = listOf(w("A", x = 1, y = 1, sx = 2, sy = 2))
+        val r = computeCornerResize(page, "A", ResizeCorner.BOTTOM_START, -1, -1, cols = 4, rows = 4)!!
+        assertEquals((0 to 1), (r.gridX to r.gridY))
+        assertEquals((3 to 1), (r.spanX to r.spanY))
+    }
+
+    @Test
+    fun endCornerClampsToPageBounds() {
+        val page = listOf(w("A", x = 0, y = 0))
+        val r = computeCornerResize(page, "A", ResizeCorner.BOTTOM_END, 99, 99, cols = 4, rows = 3)!!
+        assertEquals((4 to 3), (r.spanX to r.spanY))
+    }
+
+    @Test
+    fun startCornerClampsToPageBounds() {
+        val page = listOf(w("A", x = 2, y = 1, sx = 2, sy = 2))
+        val r = computeCornerResize(page, "A", ResizeCorner.TOP_START, -99, -99, cols = 4, rows = 3)!!
+        assertEquals((0 to 0), (r.gridX to r.gridY))
+        assertEquals((4 to 3), (r.spanX to r.spanY))
+    }
+
+    @Test
+    fun startCornerCannotCrossItsOwnFarEdge() {
+        // sanity: BOTTOM_END on this 1×1 card just grows the span
+        val page = listOf(w("A", x = 1, y = 1))
+        val grow = computeCornerResize(page, "A", ResizeCorner.BOTTOM_END, 5, 5, cols = 9, rows = 9)!!
+        assertEquals((1 to 1), (grow.gridX to grow.gridY))
+        assertEquals(6, grow.spanX)
+        // dragging TOP_START far right/up: origin is clamped at the far edge (x+sx-1 = 1),
+        // so the card shrinks to a minimum 1×1 instead of flipping inside out
+        val back = computeCornerResize(page, "A", ResizeCorner.TOP_START, 5, 5, cols = 9, rows = 9)!!
+        assertEquals((1 to 1), (back.gridX to back.gridY))
+        assertEquals((1 to 1), (back.spanX to back.spanY))
+    }
+
+    @Test
+    fun allCornersClampToMinimumOneCell() {
+        val page = listOf(w("A", x = 1, y = 1, sx = 2, sy = 2))
+        for (corner in ResizeCorner.entries) {
+            val r = computeCornerResize(page, "A", corner, -5, -5, cols = 4, rows = 4)!!
+            assertTrue(r.spanX >= 1)
+            assertTrue(r.spanY >= 1)
+            assertTrue(r.gridX >= 0 && r.gridY >= 0)
+            assertTrue(r.gridX + r.spanX <= 4 && r.gridY + r.spanY <= 4)
+        }
+    }
+
+    @Test
+    fun endCornerExpansionStopsAtNeighbourNoPush() {
+        // 4×3: neighbour N occupies (1..2, 0) — growing A right into it must be refused
+        val page = listOf(w("A", x = 0, y = 0), w("N", x = 1, y = 0, sx = 2))
+        val r = computeCornerResize(page, "A", ResizeCorner.BOTTOM_END, 2, 0, cols = 4, rows = 3)!!
+        assertEquals((0 to 0), (r.gridX to r.gridY))
+        assertEquals(1, r.spanX)
+        // the resized rect must never share a cell with the neighbour
+        val n = page.first { it.id == "N" }
+        assertTrue(cells(listOf(r)).none { c ->
+            c.first in n.gridX until n.gridX + n.spanX && c.second in n.gridY until n.gridY + n.spanY
+        })
+    }
+
+    @Test
+    fun expansionStopsAgainstNeighbourBelow() {
+        val page = listOf(w("A", x = 0, y = 0), w("N", x = 0, y = 1))
+        val r = computeCornerResize(page, "A", ResizeCorner.BOTTOM_END, 1, 1, cols = 4, rows = 3)!!
+        assertEquals(2, r.spanX) // width still free to grow
+        assertEquals(1, r.spanY) // height blocked by N
+    }
+
+    @Test
+    fun backoffKeepsLargestClearArea() {
+        // 4×4: A (2×2) dragged BOTTOM_END to a full-screen 4×4. N1 blocks column 3,
+        // N2 blocks (2,3). No full-width OR full-height expansion survives, but a
+        // 3×3 (area 9) does — the back-off must find it, not give up at 2×4 (area 8).
+        val page = listOf(
+            w("A", x = 0, y = 0, sx = 2, sy = 2),
+            w("N1", x = 3, y = 0, sx = 1, sy = 4),
+            w("N2", x = 2, y = 3, sx = 1, sy = 1)
+        )
+        val r = computeCornerResize(page, "A", ResizeCorner.BOTTOM_END, 2, 2, cols = 4, rows = 4)!!
+        assertEquals((0 to 0), (r.gridX to r.gridY))
+        assertEquals((3 to 3), (r.spanX to r.spanY))
+    }
+
+    @Test
+    fun startCornerExpansionStopsAtNeighbour() {
+        // neighbour M sits at (0,0); dragging A's TOP_START left would cover it → refused
+        val page = listOf(w("M", x = 0, y = 0), w("A", x = 1, y = 0))
+        val r = computeCornerResize(page, "A", ResizeCorner.TOP_START, -1, 0, cols = 3, rows = 2)!!
+        assertEquals((1 to 0), (r.gridX to r.gridY))
+        assertEquals(1, r.spanX)
+    }
+
+    @Test
+    fun topEndDragGrowsUpButStopsUnderNeighbour() {
+        // N occupies (2, 0); A's TOP_END corner at (3, 0) dragged up covers (2,0),(3,0) → refused
+        val page = listOf(w("N", x = 2, y = 0), w("A", x = 2, y = 1, sx = 2, sy = 2))
+        val r = computeCornerResize(page, "A", ResizeCorner.TOP_END, 0, -1, cols = 4, rows = 3)!!
+        assertEquals((2 to 1), (r.gridX to r.gridY))
+        assertEquals((2 to 2), (r.spanX to r.spanY))
+    }
+
+    @Test
+    fun resizeResultNeverOverlapsNeighbours() {
+        val page = listOf(w("A", x = 0, y = 0), w("N1", x = 2, y = 0, sx = 2), w("N2", x = 0, y = 2, sx = 2, sy = 1))
+        for (corner in ResizeCorner.entries) {
+            for (dx in -3..5) for (dy in -3..5) {
+                val r = computeCornerResize(page, "A", corner, dx, dy, cols = 4, rows = 3)!!
+                assertTrue(r.gridX >= 0 && r.gridY >= 0)
+                assertTrue(r.gridX + r.spanX <= 4 && r.gridY + r.spanY <= 3)
+                assertTrue(
+                    page.filter { it.id != "A" }.none { n ->
+                        cells(listOf(r)).any { c ->
+                            c.first in n.gridX until n.gridX + n.spanX &&
+                            c.second in n.gridY until n.gridY + n.spanY
+                        }
+                    }
+                )
+            }
+        }
+    }
+
     // ── page resize (setPageSize guard) ──────────────────────────────────────
 
     @Test
