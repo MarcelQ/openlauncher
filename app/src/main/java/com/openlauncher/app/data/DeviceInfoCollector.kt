@@ -200,11 +200,11 @@ object DeviceInfoCollector {
         }
 
         section("Settings.Global dump (MCU units keep vehicle keys here)") {
-            dumpSettings(this, context, Settings.Global.CONTENT_URI, maxRows = 120)
+            dumpSettings(this, context, Settings.Global.CONTENT_URI, maxRows = 300)
         }
 
         section("Settings.System dump") {
-            dumpSettings(this, context, Settings.System.CONTENT_URI, maxRows = 120)
+            dumpSettings(this, context, Settings.System.CONTENT_URI, maxRows = 300)
         }
 
         section("USB devices attached") {

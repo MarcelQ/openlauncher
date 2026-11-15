@@ -15,15 +15,25 @@ class DeviceInfoReportTest {
 
     @Test
     fun `common sensor types get readable names`() {
+        // Values cross-checked against the real head unit's 2026-11-15 report,
+        // where the vendor names made the ids unambiguous.
         assertEquals("accelerometer", DeviceInfoReport.sensorTypeName(1))
         assertEquals("gyroscope", DeviceInfoReport.sensorTypeName(4))
-        assertEquals("barometric pressure", DeviceInfoReport.sensorTypeName(13))
-        assertEquals("proximity", DeviceInfoReport.sensorTypeName(12))
+        assertEquals("barometric pressure", DeviceInfoReport.sensorTypeName(6))
+        assertEquals("proximity", DeviceInfoReport.sensorTypeName(8))
+        assertEquals("gravity", DeviceInfoReport.sensorTypeName(9))          // HAL sensor "gravity"
+        assertEquals("linear acceleration", DeviceInfoReport.sensorTypeName(10))
+        assertEquals("gyroscope (uncalibrated)", DeviceInfoReport.sensorTypeName(16))
+        assertEquals("device orientation", DeviceInfoReport.sensorTypeName(27))
+        assertEquals("accelerometer (uncalibrated)", DeviceInfoReport.sensorTypeName(35))
     }
 
     @Test
-    fun `unknown sensor type falls back to its id`() {
+    fun `unknown and vendor-custom sensor types fall back to their id`() {
         assertEquals("type 999", DeviceInfoReport.sensorTypeName(999))
+        // The unit's Qualcomm vendor registered "sns_tilt" under 22, which has no
+        // public constant — must NOT guess a name for it.
+        assertEquals("type 22", DeviceInfoReport.sensorTypeName(22))
     }
 
     // ── classifyPackages ──────────────────────────────────────────────────────
@@ -38,6 +48,26 @@ class DeviceInfoReportTest {
             classified["MCU / vehicle bus"]
         )
         assertEquals(null, classified["MCU / vehicle bus"]?.firstOrNull { it.contains("gms") })
+    }
+
+    @Test
+    fun `spd platform vendors from the real head unit are recognised`() {
+        // Packages taken from the 2026-11-15 device report of the user's unit.
+        val classified = DeviceInfoReport.classifyPackages(
+            listOf(
+                "com.spd.carinfo", "com.spd.txzAdapter", "com.spd.radio", "com.spd.spdradio",
+                "com.goodocom.bttek", "com.huawei.dmsdpdevice", "com.miniaa.launcher.pro",
+                "com.alpicoolneutral.fridge.controller", "app.morphe.android.youtube"
+            )
+        )
+        // com.spd.* is the whole vendor stack: the radio apps cross-match into Radio
+        assertEquals(listOf("com.spd.carinfo", "com.spd.txzAdapter", "com.spd.radio", "com.spd.spdradio"),
+            classified["MCU / vehicle bus"])
+        assertEquals(listOf("com.spd.radio", "com.spd.spdradio"), classified["Radio / FM tuner"])
+        assertEquals(listOf("com.goodocom.bttek", "com.huawei.dmsdpdevice", "com.miniaa.launcher.pro"),
+            classified["CarPlay / phone mirroring"])
+        assertEquals(listOf("com.alpicoolneutral.fridge.controller"), classified["12 V fridge / accessory"])
+        assertEquals(null, classified.values.flatten().firstOrNull { it.contains("morphe") })
     }
 
     @Test

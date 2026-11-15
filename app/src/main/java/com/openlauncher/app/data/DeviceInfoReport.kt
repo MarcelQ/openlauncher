@@ -12,32 +12,38 @@ object DeviceInfoReport {
     /**
      * Sensor type id → readable name. The numeric values mirror
      * `android.hardware.Sensor.TYPE_*` constants, duplicated here so this map
-     * stays testable without the framework. Unknown ids fall back to "type N"
-     * so a head unit with exotic sensors still produces a readable line.
+     * stays testable without the framework. Values are cross-checked against the
+     * real head unit's 2026-11-15 device report, where vendor sensor names made
+     * the ids unambiguous (gravity = 9, linear_acceleration = 10,
+     * gyroscope-uncalibrated = 16, Device Orientation = 27,
+     * Accelerometer-Uncalibrated = 35). Type ids with no public constant —
+     * e.g. the unit's Qualcomm-custom 22/29/30 — deliberately fall back to
+     * "type N" so a head unit with exotic sensors still produces a readable line.
      */
     fun sensorTypeName(type: Int): String = when (type) {
         1  -> "accelerometer"
         2  -> "magnetic field"
-        3  -> "orientation"
+        3  -> "orientation (deprecated)"
         4  -> "gyroscope"
         5  -> "ambient light"
-        6  -> "linear acceleration"
-        7  -> "gravity"
-        8  -> "rotation vector"
-        9  -> "relative humidity"
-        10 -> "ambient temperature"
-        11 -> "magnetic field (uncalibrated)"
-        12 -> "proximity"
-        13 -> "barometric pressure"
-        14 -> "gyroscope (uncalibrated)"
+        6  -> "barometric pressure"
+        8  -> "proximity"
+        9  -> "gravity"
+        10 -> "linear acceleration"
+        11 -> "rotation vector"
+        12 -> "relative humidity"
+        13 -> "ambient temperature"
+        14 -> "magnetic field (uncalibrated)"
         15 -> "game rotation vector"
-        16 -> "geomagnetic rotation vector"
-        17 -> "game gyroscope"
+        16 -> "gyroscope (uncalibrated)"
+        17 -> "significant motion"
         18 -> "step detector"
         19 -> "step counter"
-        20 -> "significant motion"
+        20 -> "geomagnetic rotation vector"
         21 -> "heart rate"
-        22 -> "device orientation"
+        26 -> "hinge angle"
+        27 -> "device orientation"
+        35 -> "accelerometer (uncalibrated)"
         else -> "type $type"
     }
 
@@ -54,18 +60,25 @@ object DeviceInfoReport {
         "MCU / vehicle bus"        to listOf(
             "szchoiceway", "carbit", "canbus", "eventcenter", "vehical",
             "autosense", "carinfoonline", ".mcu", "mcu.", "vehiclecontroller",
-            "carfactoryservice"
+            "carfactoryservice",
+            // SPD/Tianaid platform (the 2026-11-15 device report's unit: the whole
+            // vendor stack lives under com.spd.* — carinfo, txzAdapter, calibrate…)
+            "com.spd.", "carletter", "canbox"
         ),
         "CarPlay / phone mirroring" to listOf(
             "carplay", "carpplay", "carlink", "carlinkit", "easyconn", "hicar",
-            "smartlink", "mirrorlink", "airpin", "zlink", "autoconnect", "mirrorwise"
+            "smartlink", "mirrorlink", "airpin", "zlink", "autoconnect", "mirrorwise",
+            // observed on the 2026-11-15 unit: Goodocom BT-Tek dongle stack, Huawei
+            // HiCar protocol apps, MiniAA launcher
+            "goodocom", "bttek", "dmsdp", "miniaa"
         ),
         "Radio / FM tuner"         to listOf("radio", "tuner", ".fm.", ".fm"),
         "Camera / parking aid"     to listOf("camera", "parking", "reverse", "backupcam", "avm", "dvr"),
         "OBD / diagnostics"        to listOf("obd", "elm327", "torque"),
         "Steering wheel / input"   to listOf("steering", ".swc", "swc.", "remotecontroller", "keyevent", "keyproxy"),
         "DSP / audio processing"   to listOf(".dsp", "dsp.", "equalizer", "soundfield", "audioeffect", "wavesprocessing"),
-        "Navigation"               to listOf("navigation", "garmin", "co-pilot", "here.maps")
+        "Navigation"               to listOf("navigation", "garmin", "co-pilot", "here.maps"),
+        "12 V fridge / accessory"  to listOf("alpicool", "fridge")
     )
 
     /**

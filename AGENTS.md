@@ -69,3 +69,86 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   The app's own build is identified by `BuildConfig.GIT_SHA` (auto via `git rev-parse` at
   configuration time; "unknown" off git). Downloads need `REQUEST_INSTALL_PACKAGES` (user must also
   allow "install unknown apps" on API 23+).
+
+## Real head unit — hardware profile (from the Settings ▸ Diagnostics report, 2026-11-15)
+
+The developer's actual head unit was captured with the in-app device report. Use this as the
+reference device profile; it corrects several assumptions. Personal/credential values that
+appeared in the dump (vendor Wi-Fi AP password, factory password) are deliberately NOT recorded
+here — never copy them into code, issues or commits.
+
+- **Unit**: Qualcomm "trinket" (SDA/QCM665-class) reference board — brand `qti`, board/device/product
+  `trinket`, hardware `qcom`, kernel `4.14.190-perf+`, 8 cores, arm64-v8a, ~6 GB RAM
+  (≈2 GB free), 128 GB storage (≈87 GB free). Baseband `BP10.005(SC668SEMUAR02A05)` — Quectel/
+  SC668-class 4G LTE module; telephony + SIM present.
+- **Android**: API 30 (Android 11 base, fingerprint `qti/trinket/trinket:11/RKQ1.211119.001/…`,
+  security patch 2021-10-01) although `Build.VERSION.RELEASE` reports "14" — **trust SDK_INT
+  (30), not the release string**. Not an `android.hardware.type.automotive` build, no
+  `android.car` framework, UI mode = desk. Keep minSdk 21 compatibility; API 30 is the real floor
+  to test against.
+- **Screen**: 1280x720 px @ 212 dpi (1.325x, xdpi 248) ≈ 966 x 543 dp, ~6" panel, **native
+  landscape** (`rotation = 0`), 60 Hz, capacitive (`jadard-touchscreen`). Layout target: 720p
+  landscape; the settings-rail sizing comment's "1440px @ 3.5" worst case does not apply to this
+  unit — dp height here is 543, not 411.
+- **Sensors**: only accelerometer + gyroscope (STMicro LSM6DSR) plus Qualcomm fusion/virtual
+  sensors (game rotation vector, device orientation, pedometer, stationary/motion detect).
+  **No magnetometer, no barometric pressure, no proximity/light sensor.** Consequences: the
+  compass cannot use a magnetic field — heading must come from GPS motion; the altimeter is
+  GPS-altitude only; do not build features that assume TYPE_MAGNETIC_FIELD or TYPE_PRESSURE.
+- **Vendor stack is SPD (`com.spd.*`), not szchoiceway.** System apps: `com.spd.radio` +
+  `com.spd.spdradio` (FM tuner), `com.spd.media`/`spdmedia`, `com.spd.bluetooth`/`bt`,
+  `com.spd.avm` (around-view), `com.spd.dvr`/`spddvr` (dashcam), `com.spd.aircondition` (HVAC),
+  `com.spd.carinfo` + `com.spd.carinfo.ui` (vehicle info), `com.spd.txzAdapter`, `com.spd.calibrate`,
+  `com.spd.spdeq` (EQ), `com.spd.floatwindow`, `com.spd.uiswitcher`, `com.spd.setting`/`spdsettings`,
+  `com.spd.upgrade`, `com.spd.bootlogo`, `com.carletter.car` (phone-link, `carletter_*` settings),
+  `com.goodocom.bttek` (Carlinkit/Goodocom phone-mirroring dongle), Huawei HiCar stack
+  (`com.huawei.dmsdpdevice`/`hisight`/`nearby`), `com.miniaa.launcher.pro` (AutoKit-style AA).
+  → `hasSzchoicewayMcu` is false on this unit: the radio card must use the MediaSession fallback.
+  A future SPD radio backend would target `com.spd.radio`/`com.spd.spdradio` (reimplement the
+  behaviour independently; do not decompile-and-copy).
+- **Steering-wheel controls are vendor-implemented as ADC voltage tables in Settings.System**:
+  `SWC_VOLTAGE_{1,2}_{1..15}` (two banks of 15 slots, `255` = unused; bank 1 programmed: 53/84/154/
+  194/26/117 → ~6 buttons; bank 2: 26/84/154), paired `AD_VOLTAGE_*` mirrors and `KEY_SWC_STUDY_*`
+  learn flags, plus a `gpio-keys` input device (`vid:pid=0001:0001`). Reading those keys via
+  ContentResolver/observer is the realistic path to SWC support on this unit — no
+  `com.szchoiceway.permission.broadcast` MCU channel here.
+- **Vehicle/power signals in Settings.System** (SPD): `SETTING_CURRENT_VOLTAGE = 121` (12.1 V,
+  ×10 scaling — 12 V input monitor), `SPD_ACC_OFF_TIME` (epoch ms of last ACC-off → ignition/ACC
+  state), `SETTING_LOW_VOL`, `BOOT_FAIL_COUNT`, `SETTING_CANBOX_VERSION` (empty on this unit —
+  no CAN box fitted), reverse-camera geometry params `REVERSE_PARA_*` and
+  `SETTING_ORIGINAL_REVERSE_MODE` (reverse trigger), HVAC/AVM keys (`SETTING_AVM_*`). These are
+  the only vehicle signals this unit exposes — no car sensor manager, no CAN.
+- **The unit has an internal battery** (Li-ion 4000 mAh; report showed 80 %, discharging) —
+  battery APIs work, but "plugged/status" does not reflect the car's ignition; use `SPD_ACC_OFF_TIME`
+  / `SETTING_CURRENT_VOLTAGE` for run-state features instead.
+- **Vendor tuning keys** in Settings.System: `SETTING_RADIO_MODE`, `SETTING_RADIO_SORT`,
+  `SETTING_LOW_VOL` (subwoofer/volume trims), `SETTING_FRONT_TO_REAR_MIX`, `SETTING_DRIVER_POSITION`,
+  `SETTING_DIGITAL_AMPLIFIER_OUTPUT_MODE`, `SETTING_DTS_MODE`, `SETTING_FADE_BALANCE_MODE_DEFAULT`
+  (EQ/DSP surface via `com.spd.spdeq`), `SETTING_SPEECH_RECOGNITION` (currently
+  `com.google.android.apps.googleassistant`), `SETTING_BLUETOOTH_NAME` (unit advertises as
+  vehicle name — do not echo such values into the report). `SETTING_DEVELOPER_MODE` and factory
+  password keys exist — treat values as sensitive, do not log them.
+- **USB host works** and a serial adapter is attached: `/dev/bus/usb/001/003 vid:pid=1a86:7523
+  class=255` → **Qinhai CH340/CH341** USB-serial (class 255 = vendor-specific composite). This is
+  the supported CH34x family for TPMS-class sticks; USB host + USB accessory features both present.
+- **Bluetooth**: `BluetoothAdapter.isEnabled` threw `SecurityException` — the app declares no
+  Bluetooth permission (on API 30 legacy BLUETOOTH perm gates it). Any future Bluetooth feature
+  needs a deliberate permission addition (state it explicitly in the change).
+- **Sensors/audio config**: audio output + mic present, 48 kHz / 144-frame buffer — fine for the
+  chime/soundboard; `volume music = 4/40` (40-step volume curve).
+- **Grants on this unit** (Launcher grants section): Open Launcher IS the default home; location
+  fine ✓, notification listener ✓, WRITE_SETTINGS ✓; overlay windows ✗ (PIP card dead) and
+  "install unknown apps" ✗ (in-app updater install blocked) — the two the user must grant.
+- **Installed apps** (219 total / 19 user): competing launchers `app.carlab.carlauncher` and
+  `com.miniaa.launcher.pro`; user apps include Spotify, Waze, VLC, Stremio, LocalSend,
+  `app.morphe.*` (YouTube ReVanced fork), `btools.routingapp` (BRouter), Google Assistant,
+  an Alpicool smart-fridge controller pair (`com.alpicool.news`,
+  `com.alpicoolneutral.fridge.controller`) → fridge integration is a plausible future feature;
+  `com.androits.gps.test.pro` (GPS test), `com.ms.ms2160` and `com.dolby.dolby234` (vendor audio).
+- Report follow-ups — first batch already implemented with this profile entry: `com.spd.*`,
+  `carletter`, `goodocom/bttek/dmsdp/miniaa` and `alpicool` added to
+  `DeviceInfoReport.subsystemPatterns`; Settings dump cap raised 120 → 300 rows per table;
+  sensor-type map corrected against the unit's evidence (gravity=9, linear-accel=10,
+  gyro-uncal=16, device-orientation=27, accel-uncal=35). Still open: an SPD radio backend
+  (MediaSession fallback works meanwhile), SWC decoding from `SWC_VOLTAGE_*`, run-state from
+  `SPD_ACC_OFF_TIME`/`SETTING_CURRENT_VOLTAGE`.
