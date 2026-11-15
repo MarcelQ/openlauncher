@@ -285,6 +285,7 @@ class MainActivity : ComponentActivity() {
                                     NavDestination.SETTINGS -> SettingsScreen(
                                         settings           = settings,
                                         accent             = accent,
+                                        bearing            = bearing,
                                         onUpdate           = { block -> vm.updateSettings(block) },
                                         onReset            = { vm.resetSettings() },
                                         updateState        = updateState,

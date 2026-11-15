@@ -38,6 +38,7 @@ import com.openlauncher.app.data.UPDATE_REPO
 import com.openlauncher.app.data.UpdateChannel
 import com.openlauncher.app.data.UpdateReason
 import com.openlauncher.app.data.UpdateUiState
+import com.openlauncher.app.data.WeatherProvider
 import com.openlauncher.app.tpms.PressureUnit
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.util.SunriseSunset
@@ -53,6 +54,7 @@ import com.openlauncher.app.ui.components.ConfirmDialog
 fun SettingsScreen(
     settings: AppSettings,
     accent: Color,
+    bearing: Float,
     onUpdate: (AppSettings.() -> AppSettings) -> Unit,
     onReset: () -> Unit,
     updateState: UpdateUiState,
@@ -754,6 +756,104 @@ fun SettingsScreen(
                     steps         = 71, // 5 degree steps: 360 / 5 - 1 = 71 steps
                     colors        = sliderColors(accent),
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+                // One-tap capture: with the car parked flat and level, freeze the
+                // current heading as north so the card reads 0° (N) straight ahead.
+                // The offset is persisted like the slider, so it survives reboot and
+                // keeps correcting the card while driving.
+                SettingsRow(
+                    label    = "Zero to current heading",
+                    sublabel = "Park the car flat & level, then save its current heading " +
+                                "(${bearing.toInt()}°) as north. The card then reads 0° straight ahead.",
+                    icon     = Icons.Default.GpsFixed
+                ) {
+                    TextButton(onClick = {
+                        // corrected = bearing + offset ≡ 0 (mod 360); snap to the
+                        // slider's 5° detents so the thumb lines up afterwards.
+                        val target  = (((-bearing + 180f) % 360f) + 360f) % 360f - 180f
+                        val snapped = (target / 5f).roundToInt() * 5f
+                        onUpdate { copy(compassOffset = snapped) }
+                    }) {
+                        Text("CAPTURE", fontSize = 11.sp, color = accent)
+                    }
+                }
+            }
+        }
+
+        // ── Weather ──────────────────────────────────────────────────────────
+        // Provider choice + what the card shows. Both backends are key-free and
+        // cached offline, so the card still reads after the weather feed drops.
+        SettingsSection("Weather") {
+            SettingsRow(
+                label    = "Data Source",
+                sublabel = when (settings.weatherProvider) {
+                    WeatherProvider.OPEN_METEO -> "Open-Meteo — global model with gusts & rain chance (best coverage for South Africa)"
+                    WeatherProvider.MET_NO     -> "Met.no — Norwegian weather institute, accurate in many regions but no gusts or rain chance"
+                },
+                icon     = Icons.Default.Cloud
+            ) {
+                Row {
+                    FilterChip(
+                        selected = settings.weatherProvider == WeatherProvider.OPEN_METEO,
+                        onClick  = { onUpdate { copy(weatherProvider = WeatherProvider.OPEN_METEO) } },
+                        label    = { Text("Open-Meteo", fontSize = 11.sp) },
+                        colors   = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = accent,
+                            selectedLabelColor     = Color.Black
+                        )
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    FilterChip(
+                        selected = settings.weatherProvider == WeatherProvider.MET_NO,
+                        onClick  = { onUpdate { copy(weatherProvider = WeatherProvider.MET_NO) } },
+                        label    = { Text("Met.no", fontSize = 11.sp) },
+                        colors   = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = accent,
+                            selectedLabelColor     = Color.Black
+                        )
+                    )
+                }
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "High / Low Temperatures",
+                sublabel = "Show today's H/L row on the weather card",
+                icon     = Icons.Default.TrendingUp
+            ) {
+                Switch(
+                    checked         = settings.weatherShowHighLow,
+                    onCheckedChange = { onUpdate { copy(weatherShowHighLow = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Feels-like Temperature",
+                sublabel = "Show the wind-chill / heat-sensation row on the weather card",
+                icon     = Icons.Default.Whatshot
+            ) {
+                Switch(
+                    checked         = settings.weatherShowRealFeel,
+                    onCheckedChange = { onUpdate { copy(weatherShowRealFeel = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Wind Speed & Gusts",
+                sublabel = "Show the wind row on the weather card (gusts: Open-Meteo only)",
+                icon     = Icons.Default.Air
+            ) {
+                Switch(
+                    checked         = settings.weatherShowWind,
+                    onCheckedChange = { onUpdate { copy(weatherShowWind = it) } },
+                    colors          = switchColors(accent)
                 )
             }
         }
