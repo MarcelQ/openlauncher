@@ -196,6 +196,7 @@ fun HomeScreen(
 
     var widgetLibraryOpen by remember { mutableStateOf(false) }
     var gridDialogPage  by remember { mutableStateOf<Int?>(null) }
+    var weatherDetailsOpen by remember { mutableStateOf(false) }
 
     // Swipeable home screens. pageCount is a lambda so the pager follows
     // pages added/removed in edit mode without recreating pager state.
@@ -233,6 +234,9 @@ fun HomeScreen(
                     onMoveWidget  = onMoveWidget,
                     onResizeWidget = onResizeWidget,
                     onOpenMenu    = { contextMenuId = it },
+                    // plain tap on the weather card opens the forecast (long-press
+                    // still opens the widget menu; edit-mode taps keep opening it)
+                    onWeatherTap  = { if (weather != null) weatherDetailsOpen = true },
                     onPlayPause   = onPlayPause,
                     onNext        = onNext,
                     onPrev        = onPrev,
@@ -365,6 +369,22 @@ fun HomeScreen(
             onDismiss  = { widgetLibraryOpen = false }
         )
     }
+
+    // ── Forecast dialog (opened by tapping the weather card) ─────────────────
+    if (weatherDetailsOpen) {
+        val w = weather
+        if (w == null) {
+            weatherDetailsOpen = false
+        } else {
+            WeatherDetailsDialog(
+                state     = w,
+                metric    = settings.unitSystem.name == "METRIC",
+                accent    = accent,
+                isDayMode = isDayMode,
+                onDismiss = { weatherDetailsOpen = false }
+            )
+        }
+    }
 }
 
 // ── One page's widget grid ───────────────────────────────────────────────────
@@ -389,6 +409,7 @@ private fun WidgetPageGrid(
     onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
     onResizeWidget: (id: String, gridX: Int, gridY: Int, spanX: Int, spanY: Int) -> Unit,
     onOpenMenu: (id: String) -> Unit,
+    onWeatherTap: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrev: () -> Unit,
@@ -529,7 +550,10 @@ private fun WidgetPageGrid(
                     .combinedClickable(
                         indication        = null,
                         interactionSource = remember { MutableInteractionSource() },
-                        onClick           = { if (editMode) onOpenMenu(w.id) },
+                        onClick = {
+                            if (editMode) onOpenMenu(w.id)
+                            else if (w.type == "WEATHER") onWeatherTap()
+                        },
                         onLongClick       = { if (!editMode) onOpenMenu(w.id) }
                     )
                     .then(
@@ -580,11 +604,14 @@ private fun WidgetPageGrid(
                         modifier   = Modifier.fillMaxSize()
                     )
                     "WEATHER" -> WeatherWidget(
-                        state      = weather,
-                        accent     = accent,
-                        metric     = settings.unitSystem.name == "METRIC",
-                        isDayMode  = isDayMode,
-                        modifier   = Modifier.fillMaxSize()
+                        state        = weather,
+                        accent       = accent,
+                        metric       = settings.unitSystem.name == "METRIC",
+                        showHighLow  = settings.weatherShowHighLow,
+                        showRealFeel = settings.weatherShowRealFeel,
+                        showWind     = settings.weatherShowWind,
+                        isDayMode    = isDayMode,
+                        modifier     = Modifier.fillMaxSize()
                     )
                     "NOW_PLAYING" -> NowPlayingWidget(
                         state               = nowPlaying,
