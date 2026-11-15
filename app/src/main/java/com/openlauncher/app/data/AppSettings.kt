@@ -80,6 +80,10 @@ data class AppSettings(
     val wallpaperDim: Float = 0.55f,
     val sidebarPosition: SidebarPosition = SidebarPosition.LEFT,
     val bottomBarShortcutsRight: Boolean = false,
+    // Dedicated CarPlay / Android Auto rail buttons — rendered fixed before
+    // the first app shortcut slot once the respective app is assigned below
+    val sidebarCarPlayButton: Boolean = false,
+    val sidebarAndroidAutoButton: Boolean = false,
     val dayNightMode: DayNightMode = DayNightMode.DARK,
     val showPip: Boolean = false,
     val pipAppPackage: String = "",

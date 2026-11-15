@@ -5,8 +5,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * JVM tests for the Now Playing playlist sheet's current-track highlight
- * (pure helper queueHighlightIndex in NowPlayingWidget.kt — no framework needed).
+ * JVM tests for the Now Playing queue sheet's current-track highlight and
+ * the inline-queue / volume-readout helpers (pure helpers in
+ * NowPlayingWidget.kt — no framework needed).
  */
 class NowPlayingQueueTest {
 
@@ -40,7 +41,7 @@ class NowPlayingQueueTest {
 
     @Test
     fun `nothing matches returns -1`() {
-        assertEquals(-1, queueHighlightIndex(99L, queue, "Not in this playlist"))
+        assertEquals(-1, queueHighlightIndex(99L, queue, "Not in this queue"))
         assertEquals(-1, queueHighlightIndex(-1L, queue, "Nope"))
     }
 
@@ -56,5 +57,36 @@ class NowPlayingQueueTest {
     @Test
     fun `empty queue yields -1`() {
         assertEquals(-1, queueHighlightIndex(10L, emptyList(), "First Track"))
+    }
+
+    // ── inline-queue layout decision + volume readout ──────────────────────────
+
+    @Test
+    fun `queue opens inline only from 4 columns and 4 rows up`() {
+        assertEquals(false, inlineQueueAllowed(spanColumns = 3, spanRows = 4))
+        assertEquals(false, inlineQueueAllowed(spanColumns = 4, spanRows = 3))
+        assertEquals(false, inlineQueueAllowed(spanColumns = 6, spanRows = 2))
+        assertEquals(true, inlineQueueAllowed(spanColumns = 4, spanRows = 4))
+        assertEquals(true, inlineQueueAllowed(spanColumns = 5, spanRows = 4))
+        assertEquals(true, inlineQueueAllowed(spanColumns = 6, spanRows = 4))
+    }
+
+    @Test
+    fun `volume percentage rounds to the nearest whole percent`() {
+        assertEquals(0, volumePercent(current = 0, max = 15))
+        assertEquals(100, volumePercent(current = 15, max = 15))
+        // 8/15 = 53.33% → 53
+        assertEquals(53, volumePercent(current = 8, max = 15))
+        // 7/20 = 35%
+        assertEquals(35, volumePercent(current = 7, max = 20))
+    }
+
+    @Test
+    fun `volume percentage is safe with an unusable max and out-of-range reads`() {
+        assertEquals(0, volumePercent(current = 3, max = 0))
+        assertEquals(0, volumePercent(current = 3, max = -1))
+        // Some head-unit audio HALs report above-max or negative values.
+        assertEquals(100, volumePercent(current = 99, max = 15))
+        assertEquals(0, volumePercent(current = -2, max = 15))
     }
 }

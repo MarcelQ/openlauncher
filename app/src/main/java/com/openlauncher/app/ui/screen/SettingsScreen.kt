@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -72,6 +73,11 @@ fun SettingsScreen(
     onDownloadUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
     onSetUpdateChannel: (UpdateChannel) -> Unit,
+    // CarPlay / Android Auto assignment (app picker lives in AppLibrary)
+    onAssignCarPlay: () -> Unit = {},
+    onAssignAndroidAuto: () -> Unit = {},
+    onClearCarPlay: () -> Unit = {},
+    onClearAndroidAuto: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -397,6 +403,82 @@ fun SettingsScreen(
                 Switch(
                     checked         = settings.spotifyAutoConnect,
                     onCheckedChange = { onUpdate { copy(spotifyAutoConnect = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            SettingsDivider()
+
+            // Phone mirroring companions (CarPlay / Android Auto apps) —
+            // assigned here, launched from the dedicated sidebar buttons
+            SettingsRow(
+                label    = "CarPlay App",
+                sublabel = settings.carPlayPackage.ifEmpty { "Not assigned" },
+                icon     = Icons.Default.PhoneAndroid
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (settings.carPlayPackage.isNotEmpty()) {
+                        IconButton(onClick = onClearCarPlay, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Close, "Clear", tint = Color(0xFF884444), modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    TextButton(onClick = onAssignCarPlay) {
+                        Text(
+                            if (settings.carPlayPackage.isEmpty()) "ASSIGN" else "CHANGE",
+                            color = accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp
+                        )
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "CarPlay Sidebar Button",
+                sublabel = "Dedicated CarPlay button at the top of the sidebar — assign a CarPlay app first",
+                icon     = Icons.Default.PhoneAndroid
+            ) {
+                Switch(
+                    checked         = settings.sidebarCarPlayButton,
+                    onCheckedChange = { onUpdate { copy(sidebarCarPlayButton = it) } },
+                    enabled         = settings.carPlayPackage.isNotEmpty(),
+                    colors          = switchColors(accent)
+                )
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Android Auto App",
+                sublabel = settings.androidAutoPackage.ifEmpty { "Not assigned" },
+                icon     = Icons.Default.DirectionsCar
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (settings.androidAutoPackage.isNotEmpty()) {
+                        IconButton(onClick = onClearAndroidAuto, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Close, "Clear", tint = Color(0xFF884444), modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    TextButton(onClick = onAssignAndroidAuto) {
+                        Text(
+                            if (settings.androidAutoPackage.isEmpty()) "ASSIGN" else "CHANGE",
+                            color = accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp
+                        )
+                    }
+                }
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Android Auto Sidebar Button",
+                sublabel = "Dedicated Android Auto button at the top of the sidebar — assign an Android Auto app first",
+                icon     = Icons.Default.DirectionsCar
+            ) {
+                Switch(
+                    checked         = settings.sidebarAndroidAutoButton,
+                    onCheckedChange = { onUpdate { copy(sidebarAndroidAutoButton = it) } },
+                    enabled         = settings.androidAutoPackage.isNotEmpty(),
                     colors          = switchColors(accent)
                 )
             }

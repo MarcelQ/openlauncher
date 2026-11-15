@@ -21,6 +21,11 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   and for the Now Playing artwork-contrast decision — average luminance vs the dim
   overlay threshold (`app\src\test\java\com\openlauncher\app\ui\widget\NowPlayingContrastTest.kt`;
   internal pure helpers in `NowPlayingWidget.kt`);
+  and for the Now Playing queue/highlight/inline-layout/volume helpers — queue
+  current-row highlight, inline-queue ≥4×4 gate, volume-percentage rounding
+  (`app\src\test\java\com\openlauncher\app\ui\widget\NowPlayingQueueTest.kt`) plus the
+  shuffle custom-action matcher (`app\src\test\java\com\openlauncher\app\model\NowPlayingCustomActionTest.kt`,
+  helper `findShuffleActionIndex` in `model\NowPlayingState.kt`);
   and for the device-diagnostics report's pure helpers — head-unit vendor-package
   classification and sensor-type naming (`app\src\test\java\com\openlauncher\app\data\DeviceInfoReportTest.kt`;
   pure helpers split out of `data\DeviceInfoReport.kt`; the Context-driven collector in

@@ -182,6 +182,11 @@ class MainActivity : ComponentActivity() {
                                     onShortcutRemove     = { slot -> vm.removeShortcut(slot) },
                                     onShortcutSetIcon    = { slot, icon -> vm.setShortcutIcon(slot, icon) },
                                     onReorder            = { from, to -> vm.reorderShortcut(from, to) },
+                                    // Dedicated CarPlay / Android Auto buttons
+                                    // (Settings ▸ Vehicle), shown before the app
+                                    // shortcut slots
+                                    onCarPlayLaunch      = { vm.launchApp(settings.carPlayPackage) },
+                                    onAndroidAutoLaunch  = { vm.launchApp(settings.androidAutoPackage) },
                                     // Long-press on the Settings cog enters home-screen
                                     // edit mode (the Edit button in the header was removed)
                                     onRearrangeRequested = {
@@ -226,12 +231,6 @@ class MainActivity : ComponentActivity() {
                                         onPrev              = vm::skipPrev,
                                         onVolumeDown        = vm::volumeDown,
                                         onVolumeUp          = vm::volumeUp,
-                                        onLaunchCarPlay     = { vm.launchApp(settings.carPlayPackage) },
-                                        onLaunchAndroidAuto = { vm.launchApp(settings.androidAutoPackage) },
-                                        onAssignCarPlay     = { vm.startCarPlayPicker() },
-                                        onAssignAndroidAuto = { vm.startAndroidAutoPicker() },
-                                        onClearCarPlay      = { vm.clearCarPlayApp() },
-                                        onClearAndroidAuto  = { vm.clearAndroidAutoApp() },
                                         onAssignPip         = { vm.startPipPicker() },
                                         onClearPip          = { vm.clearPipApp() },
                                         onLaunchPip         = { vm.launchApp(settings.pipAppPackage) },
@@ -294,7 +293,11 @@ class MainActivity : ComponentActivity() {
                                         onCheckUpdates     = { vm.checkForUpdates() },
                                         onDownloadUpdate   = { vm.downloadAndInstallUpdate() },
                                         onInstallUpdate    = { vm.installDownloadedUpdate() },
-                                        onSetUpdateChannel = { ch -> vm.setUpdateChannel(ch) }
+                                        onSetUpdateChannel = { ch -> vm.setUpdateChannel(ch) },
+                                        onAssignCarPlay     = { vm.startCarPlayPicker() },
+                                        onAssignAndroidAuto = { vm.startAndroidAutoPicker() },
+                                        onClearCarPlay      = { vm.clearCarPlayApp() },
+                                        onClearAndroidAuto  = { vm.clearAndroidAutoApp() }
                                     )
                                 }
                             }

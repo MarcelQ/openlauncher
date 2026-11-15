@@ -186,7 +186,7 @@ class MediaListenerService : NotificationListenerService() {
         val isPlaying = controller.playbackState?.state == PlaybackState.STATE_PLAYING
         val prev = _nowPlaying.value
 
-        // Offline playlist support: MediaController.getQueue() is served by the OS
+        // Offline queue support: MediaController.getQueue() is served by the OS
         // from the source app's session — no internet involved. Whether an app
         // fills it is up to that app (Spotify does for the track it is playing).
         val queue = try {
@@ -205,6 +205,30 @@ class MediaListenerService : NotificationListenerService() {
             Log.i(TAG, "queue from ${controller.packageName}: ${queue.size} items, " +
                     "activeId=$activeQueueItemId")
 
+        // Shuffle support: the OS media-session API has NO shuffle control, so
+        // the only honest way to offer it is the action the app itself
+        // advertises (PlaybackState.getCustomActions — read from the session,
+        // no internet, nothing invented).
+        val customActions = try {
+            controller.playbackState?.customActions.orEmpty().mapNotNull { a ->
+                a?.action?.let {
+                    com.openlauncher.app.model.NowPlayingCustomAction(
+                        action = it,
+                        title  = a.name?.toString() ?: "",
+                        extras = a.extras
+                    )
+                }
+            }
+        } catch (_: Exception) { emptyList() }
+        if (customActions.map { it.action } !=
+            (prev?.customActions?.map { it.action } ?: emptyList<String>())) {
+            val shuffleIdx = com.openlauncher.app.model.findShuffleActionIndex(customActions)
+            Log.i(TAG, "custom actions from ${controller.packageName}: " +
+                    (if (customActions.isEmpty()) "none"
+                     else customActions.joinToString { it.action }) +
+                    "; shuffle=" + (customActions.getOrNull(shuffleIdx)?.action ?: "not exposed"))
+        }
+
         // Skip redundant emissions: metadata bitmaps parcel into fresh instances on
         // every read, so a plain data-class compare would never match and every
         // notification would force a recomposition + art redraw.
@@ -213,6 +237,7 @@ class MediaListenerService : NotificationListenerService() {
             prev.title == title && prev.artist == artist &&
             prev.isPlaying == isPlaying && prev.artUri == artUri &&
             prev.queue == queue && prev.activeQueueItemId == activeQueueItemId &&
+            prev.customActions.map { it.action } == customActions.map { it.action } &&
             (prev.albumArt != null) == (art != null)
         ) return
 
@@ -224,7 +249,8 @@ class MediaListenerService : NotificationListenerService() {
             isPlaying        = isPlaying,
             controller       = controller,
             queue            = queue,
-            activeQueueItemId = activeQueueItemId
+            activeQueueItemId = activeQueueItemId,
+            customActions    = customActions
         )
     }
 

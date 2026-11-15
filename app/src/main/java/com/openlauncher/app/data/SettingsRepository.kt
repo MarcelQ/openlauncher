@@ -41,6 +41,8 @@ class SettingsRepository(private val context: Context) {
         val RIGHT_HAND_DRIVE      = booleanPreferencesKey("right_hand_drive") // kept for migration
         val SIDEBAR_POSITION           = stringPreferencesKey("sidebar_position")
         val BOTTOM_BAR_SHORTCUTS_RIGHT = booleanPreferencesKey("bottom_bar_shortcuts_right")
+        val SIDEBAR_CARPLAY_BUTTON     = booleanPreferencesKey("sidebar_carplay_button")
+        val SIDEBAR_ANDROID_AUTO_BUTTON = booleanPreferencesKey("sidebar_android_auto_button")
         val DAY_NIGHT_MODE        = stringPreferencesKey("day_night_mode")
         val SHOW_PIP              = booleanPreferencesKey("show_pip")
         val PIP_APP_PACKAGE       = stringPreferencesKey("pip_app_package")
@@ -186,6 +188,8 @@ class SettingsRepository(private val context: Context) {
                 sidebarPosition  = prefs[Keys.SIDEBAR_POSITION]?.let { runCatching { SidebarPosition.valueOf(it) }.getOrNull() }
                                    ?: if (prefs[Keys.RIGHT_HAND_DRIVE] == true) SidebarPosition.RIGHT else defaults.sidebarPosition,
                 bottomBarShortcutsRight = prefs[Keys.BOTTOM_BAR_SHORTCUTS_RIGHT] ?: defaults.bottomBarShortcutsRight,
+        sidebarCarPlayButton    = prefs[Keys.SIDEBAR_CARPLAY_BUTTON] ?: defaults.sidebarCarPlayButton,
+        sidebarAndroidAutoButton = prefs[Keys.SIDEBAR_ANDROID_AUTO_BUTTON] ?: defaults.sidebarAndroidAutoButton,
                 dayNightMode     = prefs[Keys.DAY_NIGHT_MODE]?.let { runCatching { DayNightMode.valueOf(it) }.getOrNull() } ?: defaults.dayNightMode,
                 showPip          = prefs[Keys.SHOW_PIP]         ?: defaults.showPip,
                 pipAppPackage    = prefs[Keys.PIP_APP_PACKAGE]  ?: defaults.pipAppPackage,
@@ -260,6 +264,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.WALLPAPER_DIM]      = s.wallpaperDim
             prefs[Keys.SIDEBAR_POSITION]           = s.sidebarPosition.name
             prefs[Keys.BOTTOM_BAR_SHORTCUTS_RIGHT] = s.bottomBarShortcutsRight
+        prefs[Keys.SIDEBAR_CARPLAY_BUTTON]     = s.sidebarCarPlayButton
+        prefs[Keys.SIDEBAR_ANDROID_AUTO_BUTTON] = s.sidebarAndroidAutoButton
             prefs[Keys.DAY_NIGHT_MODE]     = s.dayNightMode.name
             prefs[Keys.SHOW_PIP]           = s.showPip
             prefs[Keys.PIP_APP_PACKAGE]    = s.pipAppPackage

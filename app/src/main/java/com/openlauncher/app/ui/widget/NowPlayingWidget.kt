@@ -1,6 +1,7 @@
 package com.openlauncher.app.ui.widget
 
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.media.MediaMetadata
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -16,15 +17,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.VolumeDown
@@ -46,26 +47,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.openlauncher.app.model.NowPlayingCustomAction
 import com.openlauncher.app.model.NowPlayingQueueItem
 import com.openlauncher.app.model.NowPlayingState
+import com.openlauncher.app.model.findShuffleActionIndex
 import com.openlauncher.app.service.MediaListenerService
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 @Composable
 fun NowPlayingWidget(
     state: NowPlayingState?,
     accent: Color,
-    carPlayPackage: String,
-    androidAutoPackage: String,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrev: () -> Unit,
-    onLaunchCarPlay: () -> Unit,
-    onLaunchAndroidAuto: () -> Unit,
     onTapToOpenApp: () -> Unit,
     onVolumeDown: () -> Unit,
     onVolumeUp: () -> Unit,
+    // Grid footprint of this card — a big enough card shows the queue list
+    // inline instead of in a dialog
+    spanColumns: Int = 1,
+    spanRows: Int = 1,
     modifier: Modifier = Modifier,
     isEditing: Boolean = false,
     isDayMode: Boolean = false,
@@ -81,8 +85,6 @@ fun NowPlayingWidget(
 ) {
     val context     = LocalContext.current
     val isConnected by MediaListenerService.isConnected.collectAsState()
-    val hasCarPlay  = carPlayPackage.isNotEmpty()
-    val hasAutoApp  = androidAutoPackage.isNotEmpty()
     val hasContent  = state != null && state.title.isNotEmpty()
 
     var selectedSource by rememberSaveable { mutableStateOf("Any Player") }
@@ -133,16 +135,14 @@ fun NowPlayingWidget(
                 isEditing = isEditing,
                 isDayMode = isDayMode,
                 isConnected = isConnected,
-                hasCarPlay = hasCarPlay,
-                hasAutoApp = hasAutoApp,
                 onPlayPause = onPlayPause,
                 onNext = onNext,
                 onPrev = onPrev,
-                onLaunchCarPlay = onLaunchCarPlay,
-                onLaunchAndroidAuto = onLaunchAndroidAuto,
                 onTapToOpenApp = onTapToOpenApp,
                 onVolumeDown = onVolumeDown,
                 onVolumeUp = onVolumeUp,
+                spanColumns = spanColumns,
+                spanRows = spanRows,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -529,19 +529,37 @@ private fun StandardMinimalPlayer(
     isEditing: Boolean,
     isDayMode: Boolean,
     isConnected: Boolean,
-    hasCarPlay: Boolean,
-    hasAutoApp: Boolean,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrev: () -> Unit,
-    onLaunchCarPlay: () -> Unit,
-    onLaunchAndroidAuto: () -> Unit,
     onTapToOpenApp: () -> Unit,
     onVolumeDown: () -> Unit,
     onVolumeUp: () -> Unit,
+    spanColumns: Int,
+    spanRows: Int,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
+    // Live level of the system music stream, shown as a number between the
+    // volume buttons. Polled rather than event-driven because external
+    // changes (hardware keys, phone calls) must refresh it too; the read is
+    // a cheap binder-free local call.
+    val audioManager = remember {
+        context.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
+    }
+    var volPct by remember { mutableStateOf(-1) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            volPct = audioManager?.let {
+                volumePercent(
+                    it.getStreamVolume(AudioManager.STREAM_MUSIC),
+                    it.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                )
+            } ?: -1
+            delay(800)
+        }
+    }
     
     // UI Theme colors
     val idleIconColor = if (isDayMode) Color(0xFF555555) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f)
@@ -555,83 +573,45 @@ private fun StandardMinimalPlayer(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                if (hasCarPlay || hasAutoApp) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (hasCarPlay) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .let { if (!isEditing) it.clickable { onLaunchCarPlay() } else it }
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(Icons.Default.PhoneAndroid, null, tint = accent.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
-                                    Text("CARPLAY", color = accent.copy(alpha = 0.6f), fontSize = 8.sp, letterSpacing = 2.sp)
-                                }
-                            }
-                        }
-                        if (hasCarPlay && hasAutoApp) {
-                            androidx.compose.material3.VerticalDivider(
-                                modifier = Modifier.fillMaxHeight().padding(vertical = 16.dp),
-                                color = if (isDayMode) Color(0xFFBBBBBB) else Color(0xFF1E1E1E)
-                            )
-                        }
-                        if (hasAutoApp) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .let { if (!isEditing) it.clickable { onLaunchAndroidAuto() } else it }
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(Icons.Default.DirectionsCar, null, tint = accent.copy(alpha = 0.7f), modifier = Modifier.size(28.dp))
-                                    Text("ANDROID AUTO", color = accent.copy(alpha = 0.6f), fontSize = 8.sp, letterSpacing = 2.sp)
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(Icons.Default.MusicNote, null, tint = idleIconColor, modifier = Modifier.size(24.dp))
-                        Text("NO MEDIA PLAYING", color = idleTextColor, fontSize = 7.sp, letterSpacing = 1.sp)
-                    }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(Icons.Default.MusicNote, null, tint = idleIconColor, modifier = Modifier.size(24.dp))
+                    Text("NO MEDIA PLAYING", color = idleTextColor, fontSize = 7.sp, letterSpacing = 1.sp)
                 }
 
                 // Volume is the SYSTEM music stream, so the buttons stay useful
-                // even while no media session is alive to show a track.
-                Row(
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = { if (!isEditing) onVolumeDown() }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.VolumeDown, "Volume down", tint = idleIconColor, modifier = Modifier.size(22.dp))
-                    }
-                    IconButton(onClick = { if (!isEditing) onVolumeUp() }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.VolumeUp, "Volume up", tint = idleIconColor, modifier = Modifier.size(22.dp))
-                    }
-                }
+                // even while no media session is alive to show a track. The
+                // rocker sits at the bottom edge with oversized hit areas and
+                // the current level as a number between the buttons.
+                VolumeControlRow(
+                    volPct       = volPct,
+                    iconColor    = idleIconColor,
+                    numberColor  = idleTextColor,
+                    buttonBg     = if (isDayMode) Color(0xFF000000).copy(alpha = 0.06f)
+                                   else Color(0xFFFFFFFF).copy(alpha = 0.07f),
+                    onVolumeDown = onVolumeDown,
+                    onVolumeUp   = onVolumeUp,
+                    isEditing    = isEditing,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                )
             }
         } else {
             // Non-null playing track state
             val nonNullState = state!!
             var positionMs by remember { mutableLongStateOf(nonNullState.controller?.playbackState?.position ?: 0L) }
             var showQueue by remember { mutableStateOf(false) }
+            // Shuffle: only offered when the source app actually advertises a
+            // shuffle custom action on its session (see MediaListenerService).
+            val shuffleAction = nonNullState.customActions
+                .getOrNull(findShuffleActionIndex(nonNullState.customActions))
+            // Custom actions are fire-and-forget — the session never reports
+            // shuffle state back — so the button mirrors the last toggle we sent.
+            var shuffleOn by remember(shuffleAction?.action) { mutableStateOf(false) }
             val durationMs = nonNullState.controller?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
 
             LaunchedEffect(nonNullState.isPlaying, nonNullState.title) {
@@ -689,7 +669,20 @@ private fun StandardMinimalPlayer(
                 )
             }
 
-            Column(
+            val showInlineQueue = showQueue && inlineQueueAllowed(spanColumns, spanRows)
+            if (showInlineQueue) {
+                // Large cards (≥4×4 cells): the queue list replaces the player
+                // UI in place — no dialog needed for the track list.
+                QueueInlineView(
+                    state        = nonNullState,
+                    accent       = accent,
+                    textColor    = currentTextColor,
+                    subTextColor = currentSubTextColor,
+                    iconColor    = currentIconColor,
+                    isEditing    = isEditing,
+                    onBack       = { showQueue = false }
+                )
+            } else Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -738,80 +731,109 @@ private fun StandardMinimalPlayer(
                         }
                     }
 
+                    // Transport row. Every control is a hit box sized for
+                    // in-car tapping (48 dp and up, no glove-unfriendly 36 dp
+                    // targets): shuffle (only when the source advertises a
+                    // shuffle action), prev, play/pause, next and an
+                    // icon-only queue opener.
                     Row(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        IconButton(onClick = { if (!isEditing) onPrev() }, modifier = Modifier.size(40.dp)) {
-                            Icon(Icons.Default.SkipPrevious, "Prev", tint = currentIconColor, modifier = Modifier.size(26.dp))
+                        if (shuffleAction != null) {
+                            MediaHitBox(
+                                size      = 48.dp,
+                                accent    = accent,
+                                active    = shuffleOn,
+                                isEditing = isEditing,
+                                onClick = {
+                                    // Custom actions are fire-and-forget — the
+                                    // mirror of the toggle stays local.
+                                    shuffleOn = !shuffleOn
+                                    try {
+                                        nonNullState.controller?.transportControls
+                                            ?.sendCustomAction(shuffleAction.action, shuffleAction.extras)
+                                    } catch (_: Exception) { }
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Default.Shuffle, "Shuffle",
+                                    tint = if (shuffleOn) accent else currentIconColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        MediaHitBox(
+                            size = 56.dp, accent = accent, isEditing = isEditing,
+                            onClick = onPrev
+                        ) {
+                            Icon(Icons.Default.SkipPrevious, "Prev", tint = currentIconColor, modifier = Modifier.size(30.dp))
                         }
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(64.dp)
                                 .clip(CircleShape)
                                 .background(currentPlayBgColor)
                         ) {
-                            IconButton(onClick = { if (!isEditing) onPlayPause() }, modifier = Modifier.size(42.dp)) {
+                            IconButton(onClick = { if (!isEditing) onPlayPause() }, modifier = Modifier.size(64.dp)) {
                                 Icon(
                                     imageVector = if (nonNullState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (nonNullState.isPlaying) "Pause" else "Play",
                                     tint = currentPlayIconColor,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(30.dp)
                                 )
                             }
                         }
-                        IconButton(onClick = { if (!isEditing) onNext() }, modifier = Modifier.size(40.dp)) {
-                            Icon(Icons.Default.SkipNext, "Next", tint = currentIconColor, modifier = Modifier.size(26.dp))
-                        }
-                    }
-
-                    // Volume row below the transport controls — drives the system
-                    // music stream, so it works even with no live media session.
-                    Row(
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        IconButton(onClick = { if (!isEditing) onVolumeDown() }, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Default.VolumeDown, "Volume down", tint = currentIconColor, modifier = Modifier.size(22.dp))
-                        }
-                        IconButton(onClick = { if (!isEditing) onVolumeUp() }, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Default.VolumeUp, "Volume up", tint = currentIconColor, modifier = Modifier.size(22.dp))
-                        }
-                    }
-
-                    // Offline playlist view: the queue is read from the media
-                    // session by the OS, no internet involved. Only offer it
-                    // when the source app actually exposes a queue.
-                    if (nonNullState.queue.size >= 2) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(currentTextColor.copy(alpha = 0.08f))
-                                .let { if (isEditing) it else it.clickable { showQueue = true } }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
+                        MediaHitBox(
+                            size = 56.dp, accent = accent, isEditing = isEditing,
+                            onClick = onNext
                         ) {
-                            Icon(Icons.Default.QueueMusic, null, tint = currentIconColor, modifier = Modifier.size(12.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "PLAYLIST · ${nonNullState.queue.size}",
-                                color = currentIconColor,
-                                fontSize = 8.sp,
-                                letterSpacing = 1.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Icon(Icons.Default.SkipNext, "Next", tint = currentIconColor, modifier = Modifier.size(30.dp))
+                        }
+                        // Offline queue view: the queue is served by the OS from
+                        // the source app's session — no internet involved. The
+                        // icon-only button appears only when the source exposes
+                        // a queue at all.
+                        if (nonNullState.queue.size >= 2) {
+                            MediaHitBox(
+                                size      = 48.dp,
+                                accent    = accent,
+                                active    = showQueue,
+                                isEditing = isEditing,
+                                onClick   = { showQueue = !showQueue }
+                            ) {
+                                Icon(
+                                    Icons.Default.QueueMusic, "Queue",
+                                    tint = if (showQueue) accent else currentIconColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
                     }
+
+                    // Volume pinned to the very bottom of the card: oversized
+                    // rocker (each button fills the row height) with the system
+                    // music level as a number between the buttons. Drives the
+                    // system stream, so it works even with no live session.
+                    VolumeControlRow(
+                        volPct       = volPct,
+                        iconColor    = currentIconColor,
+                        numberColor  = currentTextColor,
+                        buttonBg     = currentTextColor.copy(alpha = 0.08f),
+                        onVolumeDown = onVolumeDown,
+                        onVolumeUp   = onVolumeUp,
+                        isEditing    = isEditing,
+                        modifier     = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
-            if (showQueue) {
-                NowPlayingQueueDialog(
+            // Small cards get the queue as a dialog; big cards (≥4×4) already
+            // replaced the player UI with the inline list above.
+            if (showQueue && !showInlineQueue) {
+                NowPlayingQueueSheet(
                     state = nonNullState,
                     accent = accent,
                     isDayMode = isDayMode,
@@ -823,12 +845,180 @@ private fun StandardMinimalPlayer(
 }
 
 /**
- * Playlist sheet for the current media queue. Everything is served by the OS
- * from the source app's MediaSession — no network involved — and tapping a
- * row jumps the source app to that queue item via its TransportControls.
+ * Square touch target sized for in-car tapping. The icon is centered inside a
+ * fully clickable box — Material's default 48 dp insets alone leave the old
+ * 36–40 dp icon buttons too small for a moving vehicle.
  */
 @Composable
-private fun NowPlayingQueueDialog(
+private fun MediaHitBox(
+    size: androidx.compose.ui.unit.Dp,
+    accent: Color,
+    isEditing: Boolean,
+    active: Boolean = false,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(if (active) accent.copy(alpha = 0.20f) else Color.Transparent)
+            .let { if (isEditing) it else it.clickable { onClick() } },
+        contentAlignment = Alignment.Center
+    ) { content() }
+}
+
+/**
+ * Volume rocker: two buttons that each fill the whole row height (and half
+ * the width minus the readout), with the current system music level as a
+ * number between them — the layout head-unit drivers expect.
+ */
+@Composable
+private fun VolumeControlRow(
+    volPct: Int,
+    iconColor: Color,
+    numberColor: Color,
+    buttonBg: Color,
+    onVolumeDown: () -> Unit,
+    onVolumeUp: () -> Unit,
+    isEditing: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.height(52.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(6.dp))
+                .background(buttonBg)
+                .let { if (isEditing) it else it.clickable { onVolumeDown() } },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.VolumeDown, "Volume down", tint = iconColor, modifier = Modifier.size(26.dp))
+        }
+        Text(
+            text = if (volPct >= 0) "$volPct" else "—",
+            color = numberColor,
+            fontSize = 16.sp,
+            fontFamily = FontFamily.Monospace,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.width(44.dp)
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(6.dp))
+                .background(buttonBg)
+                .let { if (isEditing) it else it.clickable { onVolumeUp() } },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.VolumeUp, "Volume up", tint = iconColor, modifier = Modifier.size(26.dp))
+        }
+    }
+}
+
+/**
+ * Full-card queue list for large cards (≥4×4 grid cells): replaces the
+ * player UI in place instead of opening a dialog. Data comes from the OS
+ * media session — fully offline — and tapping a row jumps the source app to
+ * that queue item. The list stays open after a jump so several tracks can
+ * be browsed in sequence.
+ */
+@Composable
+private fun QueueInlineView(
+    state: NowPlayingState,
+    accent: Color,
+    textColor: Color,
+    subTextColor: Color,
+    iconColor: Color,
+    isEditing: Boolean,
+    onBack: () -> Unit
+) {
+    val queue = state.queue
+    val currentIndex = queueHighlightIndex(state.activeQueueItemId, queue, state.title)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 22.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = iconColor, modifier = Modifier.size(20.dp))
+            }
+            Text(
+                "QUEUE · ${queue.size} TRACKS",
+                color = textColor,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+        }
+        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            itemsIndexed(queue) { index, item ->
+                val active = index == currentIndex
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (active) accent.copy(alpha = 0.18f) else Color.Transparent)
+                        .let {
+                            if (isEditing) it else it.clickable {
+                                try {
+                                    state.controller?.transportControls?.skipToQueueItem(item.id)
+                                } catch (_: Exception) { }
+                            }
+                        }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "%02d".format(index + 1),
+                        color = if (active) accent else subTextColor,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            item.title,
+                            color = if (active) textColor else textColor.copy(alpha = 0.8f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 13.sp,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+                        )
+                        if (item.subtitle.isNotEmpty()) {
+                            Text(
+                                item.subtitle,
+                                color = subTextColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Queue sheet for small cards. Everything is served by the OS from the
+ * source app's MediaSession — no network involved — and tapping a row jumps
+ * the source app to that queue item via its TransportControls.
+ */
+@Composable
+private fun NowPlayingQueueSheet(
     state: NowPlayingState,
     accent: Color,
     isDayMode: Boolean,
@@ -846,7 +1036,7 @@ private fun NowPlayingQueueDialog(
         containerColor = if (isDayMode) Color(0xFFFAFAFA) else Color(0xFF14181D),
         title = {
             Text(
-                "PLAYLIST · ${queue.size} TRACKS",
+                "QUEUE · ${queue.size} TRACKS",
                 color = titleColor,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
@@ -860,10 +1050,13 @@ private fun NowPlayingQueueDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 44.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(if (active) accent.copy(alpha = 0.18f) else Color.Transparent)
                             .clickable {
-                                state.controller?.transportControls?.skipToQueueItem(item.id)
+                                try {
+                                    state.controller?.transportControls?.skipToQueueItem(item.id)
+                                } catch (_: Exception) { }
                                 onDismiss()
                             }
                             .padding(horizontal = 8.dp, vertical = 6.dp),
@@ -944,7 +1137,7 @@ private fun sampleArtPixels(art: Bitmap?): IntArray? {
 
 // ── Queue highlight helper (pure part JVM-tested in NowPlayingQueueTest) ─────
 /**
- * Which playlist row represents the currently playing track. Prefer the
+ * Which queue row represents the currently playing track. Prefer the
  * session's activeQueueItemId; apps that leave it unset (-1) or stale fall
  * back to a case-insensitive title match. Returns -1 when nothing matches.
  */
@@ -961,4 +1154,17 @@ internal fun queueHighlightIndex(
     if (title.isNullOrEmpty()) return -1
     return queue.indexOfFirst { it.title.trim().lowercase() == title }
 }
+
+// ── Layout / volume helpers (pure parts JVM-tested in NowPlayingQueueTest) ───
+/**
+ * Cards occupying at least 4 columns AND 4 rows of the home-screen grid are
+ * large enough to show the queue list inline, replacing the player UI,
+ * instead of opening the small dialog.
+ */
+internal fun inlineQueueAllowed(spanColumns: Int, spanRows: Int): Boolean =
+    spanColumns >= 4 && spanRows >= 4
+
+/** System music stream level as a whole percentage; 0 when no stream exists. */
+internal fun volumePercent(current: Int, max: Int): Int =
+    if (max <= 0) 0 else ((current.toFloat() / max) * 100f).roundToInt().coerceIn(0, 100)
 

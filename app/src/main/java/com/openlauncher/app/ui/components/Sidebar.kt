@@ -56,6 +56,11 @@ fun Sidebar(
     onShortcutRemove: (Int) -> Unit,
     onShortcutSetIcon: (Int, DefaultShortcutIcon?) -> Unit,
     onReorder: (from: Int, to: Int) -> Unit,
+    // Dedicated CarPlay / Android Auto buttons — assignment and visibility
+    // live in Settings ▸ Vehicle; here they render fixed before the first
+    // app shortcut slot
+    onCarPlayLaunch: () -> Unit = {},
+    onAndroidAutoLaunch: () -> Unit = {},
     onRearrangeRequested: () -> Unit = {},
     isHorizontal: Boolean = false,
     modifier: Modifier = Modifier
@@ -126,6 +131,18 @@ fun Sidebar(
         }
     }
 
+    // CarPlay / Android Auto: fixed dedicated slots at the head of the rail,
+    // shown only when assigned in Settings AND the per-button toggle is on.
+    // Not draggable/removable here on purpose — Settings owns them.
+    val vehicleSlots: @Composable () -> Unit = {
+        if (settings.sidebarCarPlayButton && settings.carPlayPackage.isNotEmpty()) {
+            DedicatedSlot(Icons.Default.PhoneAndroid, "CarPlay", isHorizontal, onCarPlayLaunch)
+        }
+        if (settings.sidebarAndroidAutoButton && settings.androidAutoPackage.isNotEmpty()) {
+            DedicatedSlot(Icons.Default.DirectionsCar, "Android Auto", isHorizontal, onAndroidAutoLaunch)
+        }
+    }
+
     val navButtons: @Composable () -> Unit = {
         NavButton(
             icon         = Icons.Default.Apps,
@@ -177,6 +194,7 @@ fun Sidebar(
                     .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                vehicleSlots()
                 shortcutsContent()
             }
 
@@ -214,6 +232,7 @@ fun Sidebar(
                     .padding(top = 6.dp, bottom = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                vehicleSlots()
                 shortcutsContent()
             }
 
@@ -370,6 +389,36 @@ private fun ShortcutSlot(
                 )
             }
         }
+    }
+}
+
+/**
+ * Fixed dedicated rail button (CarPlay / Android Auto). Same slot metrics
+ * and icon style as the app shortcuts so the rail stays visually uniform.
+ */
+@Composable
+private fun DedicatedSlot(
+    icon: ImageVector,
+    label: String,
+    isHorizontal: Boolean,
+    onClick: () -> Unit
+) {
+    val iconInactive = if (LocalDayMode.current) Color(0xFF777777) else Color(0xFF3A3A3A)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .then(
+                if (isHorizontal) Modifier.fillMaxHeight().width(SLOT_SIZE)
+                else              Modifier.fillMaxWidth().height(SLOT_SIZE)
+            )
+            .clickable(onClick = onClick)
+    ) {
+        Icon(
+            imageVector        = icon,
+            contentDescription = label,
+            tint               = iconInactive,
+            modifier           = Modifier.size(ICON_SIZE)
+        )
     }
 }
 

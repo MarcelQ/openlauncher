@@ -142,12 +142,6 @@ fun HomeScreen(
     onPrev: () -> Unit,
     onVolumeDown: () -> Unit,
     onVolumeUp: () -> Unit,
-    onLaunchCarPlay: () -> Unit,
-    onLaunchAndroidAuto: () -> Unit,
-    onAssignCarPlay: () -> Unit,
-    onAssignAndroidAuto: () -> Unit,
-    onClearCarPlay: () -> Unit,
-    onClearAndroidAuto: () -> Unit,
     onAssignPip: () -> Unit,
     onClearPip: () -> Unit,
     onLaunchPip: () -> Unit,
@@ -244,8 +238,6 @@ fun HomeScreen(
                     onPrev        = onPrev,
                     onVolumeDown  = onVolumeDown,
                     onVolumeUp    = onVolumeUp,
-                    onLaunchCarPlay     = onLaunchCarPlay,
-                    onLaunchAndroidAuto = onLaunchAndroidAuto,
                     onTapNowPlaying     = onTapNowPlaying,
                     onLaunchHardwareRadio = onLaunchHardwareRadio,
                     onStopHardwareRadio   = onStopHardwareRadio,
@@ -314,16 +306,10 @@ fun HomeScreen(
                 clockStyle          = settings.clockStyle,
                 vitalsAsBars        = settings.vitalsAsBars,
                 speedometerDigitalOnly = settings.speedometerDigitalOnly,
-                carPlayPackage      = settings.carPlayPackage,
-                androidAutoPackage  = settings.androidAutoPackage,
                 pipAppPackage       = settings.pipAppPackage,
                 isDayMode           = isDayMode,
                 onRemove            = { contextMenuId = null; onRemoveWidget(id) },
                 onMoveToPage        = { p -> contextMenuId = null; onMoveWidgetToPage(id, p) },
-                onAssignCarPlay     = { contextMenuId = null; onAssignCarPlay() },
-                onAssignAndroidAuto = { contextMenuId = null; onAssignAndroidAuto() },
-                onClearCarPlay      = { contextMenuId = null; onClearCarPlay() },
-                onClearAndroidAuto  = { contextMenuId = null; onClearAndroidAuto() },
                 onAssignPip         = { contextMenuId = null; onAssignPip() },
                 onClearPip          = { contextMenuId = null; onClearPip() },
                 onSetClockStyle     = { onSetClockStyle(it) },
@@ -419,8 +405,6 @@ private fun WidgetPageGrid(
     onPrev: () -> Unit,
     onVolumeDown: () -> Unit,
     onVolumeUp: () -> Unit,
-    onLaunchCarPlay: () -> Unit,
-    onLaunchAndroidAuto: () -> Unit,
     onTapNowPlaying: () -> Unit,
     onLaunchHardwareRadio: () -> Unit,
     onStopHardwareRadio: () -> Unit,
@@ -622,16 +606,14 @@ private fun WidgetPageGrid(
                     "NOW_PLAYING" -> NowPlayingWidget(
                         state               = nowPlaying,
                         accent              = accent,
-                        carPlayPackage      = settings.carPlayPackage,
-                        androidAutoPackage  = settings.androidAutoPackage,
                         onPlayPause         = onPlayPause,
                         onNext              = onNext,
                         onPrev              = onPrev,
-                        onLaunchCarPlay     = onLaunchCarPlay,
-                        onLaunchAndroidAuto = onLaunchAndroidAuto,
                         onTapToOpenApp      = onTapNowPlaying,
                         onVolumeDown        = onVolumeDown,
                         onVolumeUp          = onVolumeUp,
+                        spanColumns         = w.spanX,
+                        spanRows            = w.spanY,
                         modifier            = Modifier.fillMaxSize(),
                         isEditing           = editMode,
                         isDayMode           = isDayMode,
@@ -1030,16 +1012,10 @@ private fun WidgetContextMenu(
     clockStyle: ClockStyle,
     vitalsAsBars: Boolean,
     speedometerDigitalOnly: Boolean,
-    carPlayPackage: String = "",
-    androidAutoPackage: String = "",
     pipAppPackage: String = "",
     isDayMode: Boolean,
     onRemove: () -> Unit,
     onMoveToPage: (Int) -> Unit,
-    onAssignCarPlay: () -> Unit,
-    onAssignAndroidAuto: () -> Unit,
-    onClearCarPlay: () -> Unit,
-    onClearAndroidAuto: () -> Unit,
     onAssignPip: () -> Unit,
     onClearPip: () -> Unit,
     onSetClockStyle: (ClockStyle) -> Unit,
@@ -1162,20 +1138,6 @@ private fun WidgetContextMenu(
                 BrightnessLevelRow("MED",  brightnessMediumPct, accent, isDayMode) { onSetBrightnessLevel("MEDIUM", it) }
                 HorizontalDivider(color = menuDivider)
                 BrightnessLevelRow("LOW",  brightnessLowPct, accent, isDayMode) { onSetBrightnessLevel("LOW", it) }
-            }
-            if (widgetType == "NOW_PLAYING") {
-                HorizontalDivider(color = menuDivider)
-                ContextRow("ASSIGN CARPLAY APP",      Icons.Default.PhoneAndroid,  accent, onAssignCarPlay, isDayMode = isDayMode)
-                if (carPlayPackage.isNotEmpty()) {
-                    HorizontalDivider(color = menuDivider)
-                    ContextRow("CLEAR CARPLAY APP", Icons.Default.PhoneAndroid, Color(0xFF884444), onClearCarPlay, isDayMode = isDayMode)
-                }
-                HorizontalDivider(color = menuDivider)
-                ContextRow("ASSIGN ANDROID AUTO APP", Icons.Default.DirectionsCar, accent, onAssignAndroidAuto, isDayMode = isDayMode)
-                if (androidAutoPackage.isNotEmpty()) {
-                    HorizontalDivider(color = menuDivider)
-                    ContextRow("CLEAR ANDROID AUTO APP", Icons.Default.DirectionsCar, Color(0xFF884444), onClearAndroidAuto, isDayMode = isDayMode)
-                }
             }
 
         }
