@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlauncher.app.model.DayForecast
@@ -226,11 +227,15 @@ private fun DailyForecastList(
                     modifier      = Modifier.width(86.dp)
                 )
                 Text(text = day.conditionIcon, fontSize = 16.sp)
+                // single line: long labels like "MODERATE DRIZZLE" would
+                // otherwise wrap and grow the row
                 Text(
                     text          = day.conditionLabel.uppercase(),
                     color         = subColor,
                     fontSize      = 8.sp,
                     letterSpacing = 1.sp,
+                    maxLines      = 1,
+                    overflow      = TextOverflow.Ellipsis,
                     modifier      = Modifier.weight(1f)
                 )
                 // providers without rain probability (met.no) hide this cell
