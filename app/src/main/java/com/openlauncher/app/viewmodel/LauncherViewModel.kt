@@ -20,6 +20,7 @@ import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.DefaultShortcutIcon
 import com.openlauncher.app.data.GridPage
 import com.openlauncher.app.data.LocalBuild
+import com.openlauncher.app.data.MetNoApi
 import com.openlauncher.app.data.MAX_COLS
 import com.openlauncher.app.data.MAX_PAGES
 import com.openlauncher.app.data.MAX_ROWS
@@ -33,6 +34,7 @@ import com.openlauncher.app.data.UpdateChannel
 import com.openlauncher.app.data.UpdateDecision
 import com.openlauncher.app.data.UpdateUiState
 import com.openlauncher.app.data.WeatherApi
+import com.openlauncher.app.data.WeatherProvider
 import com.openlauncher.app.data.WidgetInstance
 import com.openlauncher.app.data.buildRemoteUpdate
 import com.openlauncher.app.data.computeWidgetMove
@@ -44,6 +46,7 @@ import com.openlauncher.app.data.hasWidgetType
 import com.openlauncher.app.data.instancesOnPage
 import com.openlauncher.app.data.nextInstanceId
 import com.openlauncher.app.data.resizePageLayout
+import com.openlauncher.app.data.toWeatherState
 import com.openlauncher.app.util.SunriseSunset
 import com.openlauncher.app.util.SystemBrightness
 import com.openlauncher.app.model.AppInfo
@@ -558,24 +561,56 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private var weatherJob: Job? = null
 
+    /** Last coordinates we fetched for; lets a provider change re-fetch right away. */
+    private var lastWeatherLoc: Pair<Double, Double>? = null
+
+    init {
+        // Hydrate the card from the last successful fetch (persisted JSON) so it
+        // shows something on a cold boot even while the network is still down.
+        viewModelScope.launch {
+            settingsRepo.loadWeatherCache()?.let { cached ->
+                if (_weather.value == null) _weather.value = cached
+            }
+        }
+        // Switching providers in Settings must take effect immediately rather
+        // than on the next 30-minute tick — the old backend's cached card would
+        // otherwise linger with data from the other source.
+        viewModelScope.launch {
+            settings.map { it.weatherProvider }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect {
+                    lastWeatherLoc?.let { (lat, lon) ->
+                        fetchWeather(lat, lon, settings.value.unitSystem.name == "METRIC")
+                    }
+                }
+        }
+    }
+
     fun fetchWeather(lat: Double, lon: Double, metric: Boolean) {
+        lastWeatherLoc = lat to lon
         weatherJob?.cancel()
         weatherJob = viewModelScope.launch {
             try {
                 // Always request celsius — the state stores celsius and the widget
                 // converts for display, so requesting fahrenheit just round-tripped
                 // the value through two lossy conversions
-                val resp = WeatherApi.service.getForecast(lat, lon, temperatureUnit = "celsius")
-                resp.currentWeather?.let { cw ->
-                    _weather.value = WeatherState(
-                        temperatureCelsius = cw.temperature,
-                        weatherCode       = cw.weathercode,
-                        windspeedKmh      = cw.windspeed,
-                        isDay             = cw.isDay == 1
-                    )
-                }
+                val state = when (settings.value.weatherProvider) {
+                    WeatherProvider.OPEN_METEO ->
+                        WeatherApi.service.getForecast(lat, lon).toWeatherState()
+                    WeatherProvider.MET_NO ->
+                        MetNoApi.service.getForecast(lat, lon).toWeatherState()
+                } ?: error("Forecast response had no current conditions")
+                _weather.value = state
                 _weatherError.value = null
+                // Only a good fetch replaces the cache — an error keeps the old
+                // reading available for the next boot.
+                settingsRepo.saveWeatherCache(state)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                // Keep showing the last reading (possibly loaded from the cache);
+                // only surface the error text.
                 _weatherError.value = e.message
             }
         }

@@ -14,7 +14,10 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   (`app\src\test\java\com\openlauncher\app\tpms\`)
   and for the multi-page widget grid engine — placement, page resize guards, duplicate
   instance ids, legacy migration (`app\src\test\java\com\openlauncher\app\data\GridLayoutTest.kt`;
-  the engine itself lives in `app\src\main\java\com\openlauncher\app\data\GridLayout.kt`, framework-free).
+  the engine itself lives in `app\src\main\java\com\openlauncher\app\data\GridLayout.kt`, framework-free);
+  and for the two weather backends' response → `WeatherState` mapping plus the met.no
+  symbol-code → WMO translation (`app\src\test\java\com\openlauncher\app\data\WeatherForecastParseTest.kt`;
+  pure DTOs, no network).
   JVM only, no device. No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).

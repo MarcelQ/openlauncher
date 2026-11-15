@@ -11,6 +11,7 @@ enum class AppFont { SYSTEM, JETBRAINS_MONO, SOURCE_CODE_PRO }
 enum class DayNightMode { DARK, LIGHT, AUTO, SYSTEM }
 enum class SidebarPosition { LEFT, RIGHT, BOTTOM }
 enum class GradientDirection { TOP_TO_BOTTOM, LEFT_TO_RIGHT, DIAGONAL, RADIAL }
+enum class WeatherProvider { OPEN_METEO, MET_NO }
 
 enum class DefaultShortcutIcon {
     NONE,
@@ -87,6 +88,14 @@ data class AppSettings(
     val onboardingCompleted: Boolean = false,
     val compassOffset: Float = 0f,
     val soundboardPads: List<SoundPadConfig> = defaultSoundboardPads(),
+    // ── Weather card ──────────────────────────────────────────────────────────
+    // Data source: OPEN_METEO is the default ("best for South Africa" — full
+    // current/hourly/daily incl. gusts and rain probability, no key needed).
+    // MET_NO (Norwegian Institute) is the fallback; it lacks gusts and rain %.
+    val weatherProvider: WeatherProvider = WeatherProvider.OPEN_METEO,
+    val weatherShowHighLow: Boolean = true,
+    val weatherShowRealFeel: Boolean = true,
+    val weatherShowWind: Boolean = true,
     // ── Screen brightness ─────────────────────────────────────────────────────────
     // Preset levels are 1..100 (% of the SCREEN_BRIGHTNESS range) and only applied
     // when a card button is tapped or brightnessAuto drives them. Auto needs a GPS

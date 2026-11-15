@@ -6,9 +6,11 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.tpms.PressureUnit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 
@@ -60,6 +62,13 @@ class SettingsRepository(private val context: Context) {
         val GRADIENT_DIRECTION    = stringPreferencesKey("gradient_direction")
         val USE_CUSTOM_BG_COLOR   = booleanPreferencesKey("use_custom_bg_color")
         val UPDATE_CHANNEL        = stringPreferencesKey("update_channel")
+        val WEATHER_PROVIDER      = stringPreferencesKey("weather_provider")
+        val WEATHER_SHOW_HIGH_LOW = booleanPreferencesKey("weather_show_high_low")
+        val WEATHER_SHOW_REALFEEL = booleanPreferencesKey("weather_show_real_feel")
+        val WEATHER_SHOW_WIND     = booleanPreferencesKey("weather_show_wind")
+        // Last successful weather fetch (WeatherState as JSON). Stored outside
+        // AppSettings so the card survives reboots with the Wi-Fi off.
+        val WEATHER_CACHE_JSON    = stringPreferencesKey("weather_cache_json")
 
         // Multi-page grid model
         val PAGES_JSON   = stringPreferencesKey("grid_pages_json")
@@ -205,7 +214,13 @@ class SettingsRepository(private val context: Context) {
                 useCustomBackgroundColor = prefs[Keys.USE_CUSTOM_BG_COLOR] ?: defaults.useCustomBackgroundColor,
                  updateChannel = prefs[Keys.UPDATE_CHANNEL]?.let {
                      runCatching { UpdateChannel.valueOf(it) }.getOrNull()?.name ?: defaults.updateChannel
-                 } ?: defaults.updateChannel
+                 } ?: defaults.updateChannel,
+                 weatherProvider = prefs[Keys.WEATHER_PROVIDER]?.let {
+                     runCatching { WeatherProvider.valueOf(it) }.getOrNull()
+                 } ?: defaults.weatherProvider,
+                 weatherShowHighLow = prefs[Keys.WEATHER_SHOW_HIGH_LOW] ?: defaults.weatherShowHighLow,
+                 weatherShowRealFeel = prefs[Keys.WEATHER_SHOW_REALFEEL] ?: defaults.weatherShowRealFeel,
+                 weatherShowWind  = prefs[Keys.WEATHER_SHOW_WIND] ?: defaults.weatherShowWind
             )
     }
 
@@ -264,6 +279,10 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.GRADIENT_DIRECTION] = s.gradientDirection.name
             prefs[Keys.USE_CUSTOM_BG_COLOR] = s.useCustomBackgroundColor
             prefs[Keys.UPDATE_CHANNEL]     = s.updateChannel
+            prefs[Keys.WEATHER_PROVIDER]   = s.weatherProvider.name
+            prefs[Keys.WEATHER_SHOW_HIGH_LOW] = s.weatherShowHighLow
+            prefs[Keys.WEATHER_SHOW_REALFEEL] = s.weatherShowRealFeel
+            prefs[Keys.WEATHER_SHOW_WIND]  = s.weatherShowWind
 
             // Once the new model has been written the legacy keys are dead weight —
             // drop them so a downgrade never reads a half-migrated store again.
@@ -273,6 +292,23 @@ class SettingsRepository(private val context: Context) {
                 Keys.SHOW_SOUNDBOARD, Keys.SHOW_VOLUME, Keys.SHOW_BRIGHTNESS, Keys.SHOW_TPMS,
                 Keys.WIDGET_LAYOUT_JSON
             ).forEach { prefs.remove(it) }
+    }
+
+    // ── Weather cache ──────────────────────────────────────────────────────────
+    // Deliberately NOT part of AppSettings: the last successful weather fetch is
+    // persisted on its own key so the weather card keeps showing the last reading
+    // across reboots even with the Wi-Fi off, and settings writes never touch it.
+
+    suspend fun saveWeatherCache(state: WeatherState?) {
+        context.dataStore.edit { prefs ->
+            if (state == null) prefs.remove(Keys.WEATHER_CACHE_JSON)
+            else prefs[Keys.WEATHER_CACHE_JSON] = gson.toJson(state)
+        }
+    }
+
+    suspend fun loadWeatherCache(): WeatherState? {
+        val json = context.dataStore.data.first()[Keys.WEATHER_CACHE_JSON] ?: return null
+        return runCatching { gson.fromJson(json, WeatherState::class.java) }.getOrNull()
     }
 
     suspend fun resetToDefaults() {
