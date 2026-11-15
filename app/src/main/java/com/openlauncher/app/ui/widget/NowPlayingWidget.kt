@@ -1,5 +1,6 @@
 package com.openlauncher.app.ui.widget
 
+import android.graphics.Bitmap
 import android.media.MediaMetadata
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,6 +60,8 @@ fun NowPlayingWidget(
     onLaunchCarPlay: () -> Unit,
     onLaunchAndroidAuto: () -> Unit,
     onTapToOpenApp: () -> Unit,
+    onVolumeDown: () -> Unit,
+    onVolumeUp: () -> Unit,
     modifier: Modifier = Modifier,
     isEditing: Boolean = false,
     isDayMode: Boolean = false,
@@ -132,6 +137,8 @@ fun NowPlayingWidget(
                 onLaunchCarPlay = onLaunchCarPlay,
                 onLaunchAndroidAuto = onLaunchAndroidAuto,
                 onTapToOpenApp = onTapToOpenApp,
+                onVolumeDown = onVolumeDown,
+                onVolumeUp = onVolumeUp,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -526,6 +533,8 @@ private fun StandardMinimalPlayer(
     onLaunchCarPlay: () -> Unit,
     onLaunchAndroidAuto: () -> Unit,
     onTapToOpenApp: () -> Unit,
+    onVolumeDown: () -> Unit,
+    onVolumeUp: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -598,6 +607,21 @@ private fun StandardMinimalPlayer(
                         Text("NO MEDIA PLAYING", color = idleTextColor, fontSize = 7.sp, letterSpacing = 1.sp)
                     }
                 }
+
+                // Volume is the SYSTEM music stream, so the buttons stay useful
+                // even while no media session is alive to show a track.
+                Row(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { if (!isEditing) onVolumeDown() }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.VolumeDown, "Volume down", tint = idleIconColor, modifier = Modifier.size(22.dp))
+                    }
+                    IconButton(onClick = { if (!isEditing) onVolumeUp() }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.VolumeUp, "Volume up", tint = idleIconColor, modifier = Modifier.size(22.dp))
+                    }
+                }
             }
         } else {
             // Non-null playing track state
@@ -616,8 +640,20 @@ private fun StandardMinimalPlayer(
             val hasAlbumArt = nonNullState.albumArt != null
             val useDarkTheme = hasAlbumArt || !isDayMode
 
-            val currentTextColor = if (hasAlbumArt) Color.White else if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-            val currentSubTextColor = if (hasAlbumArt) Color.White.copy(alpha = 0.6f) else if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+            // Adaptive title contrast: sample the album-art thumbnail and pick black
+            // or white text so the title stays readable on bright cover art. The
+            // card's 25% black dim overlay is folded into the decision threshold.
+            val artLuminance = remember(nonNullState.albumArt) {
+                sampleArtPixels(nonNullState.albumArt)?.let { averageLuminance(it) }
+            }
+            val currentTextColor = when {
+                hasAlbumArt && artLuminance != null ->
+                    if (useBlackTextOnArtwork(artLuminance)) Color(0xFF111111) else Color.White
+                hasAlbumArt -> Color.White
+                isDayMode -> Color(0xFF111111)
+                else -> MaterialTheme.colorScheme.onBackground
+            }
+            val currentSubTextColor = if (hasAlbumArt) currentTextColor.copy(alpha = 0.6f) else if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
             val currentProgressColor = if (useDarkTheme) accent else if (isDayMode) Color(0xFF111111) else accent
             val currentProgressTrack = currentTextColor.copy(alpha = 0.15f)
             val currentIconColor = currentTextColor.copy(alpha = 0.75f)
@@ -702,8 +738,8 @@ private fun StandardMinimalPlayer(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        IconButton(onClick = { if (!isEditing) onPrev() }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.SkipPrevious, "Prev", tint = currentIconColor, modifier = Modifier.size(20.dp))
+                        IconButton(onClick = { if (!isEditing) onPrev() }, modifier = Modifier.size(40.dp)) {
+                            Icon(Icons.Default.SkipPrevious, "Prev", tint = currentIconColor, modifier = Modifier.size(26.dp))
                         }
                         Box(
                             contentAlignment = Alignment.Center,
@@ -721,8 +757,23 @@ private fun StandardMinimalPlayer(
                                 )
                             }
                         }
-                        IconButton(onClick = { if (!isEditing) onNext() }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.SkipNext, "Next", tint = currentIconColor, modifier = Modifier.size(20.dp))
+                        IconButton(onClick = { if (!isEditing) onNext() }, modifier = Modifier.size(40.dp)) {
+                            Icon(Icons.Default.SkipNext, "Next", tint = currentIconColor, modifier = Modifier.size(26.dp))
+                        }
+                    }
+
+                    // Volume row below the transport controls — drives the system
+                    // music stream, so it works even with no live media session.
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        IconButton(onClick = { if (!isEditing) onVolumeDown() }, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Default.VolumeDown, "Volume down", tint = currentIconColor, modifier = Modifier.size(22.dp))
+                        }
+                        IconButton(onClick = { if (!isEditing) onVolumeUp() }, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Default.VolumeUp, "Volume up", tint = currentIconColor, modifier = Modifier.size(22.dp))
                         }
                     }
                 }
@@ -734,5 +785,34 @@ private fun StandardMinimalPlayer(
 private fun formatMs(ms: Long): String {
     val s = ms / 1000
     return "%d:%02d".format(s / 60, s % 60)
+}
+
+// ── Artwork contrast helpers (pure parts JVM-tested in NowPlayingContrastTest) ──
+/** Rec. 709 luma of the sampled artwork pixels, 0 (black) .. 1 (white). */
+internal fun averageLuminance(argb: IntArray): Float {
+    if (argb.isEmpty()) return 0f
+    var sum = 0.0
+    for (c in argb) {
+        val r = (c shr 16 and 0xFF) / 255.0
+        val g = (c shr 8 and 0xFF) / 255.0
+        val b = (c and 0xFF) / 255.0
+        sum += 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+    return (sum / argb.size).toFloat()
+}
+
+/** Switch to black title text once even the dimmed artwork stays bright; the
+ *  0.75 factor folds in the card's 25%-black overlay drawn over the artwork. */
+internal fun useBlackTextOnArtwork(luminance: Float): Boolean = luminance * 0.75f > 0.5f
+
+/** Downscale the cover art to a 12×12 patch and read its raw ARGB pixels. */
+private fun sampleArtPixels(art: Bitmap?): IntArray? {
+    if (art == null || art.width == 0 || art.height == 0) return null
+    return try {
+        val small = Bitmap.createScaledBitmap(art, 12, 12, true)
+        IntArray(144).also { small.getPixels(it, 0, 12, 0, 0, 12, 12) }
+    } catch (_: Exception) {
+        null // recycle race with the media session, etc. — fall back to white text
+    }
 }
 

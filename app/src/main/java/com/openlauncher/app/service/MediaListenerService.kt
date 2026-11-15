@@ -1,12 +1,17 @@
 package com.openlauncher.app.service
 
 import android.content.ComponentName
+import android.content.Intent
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
+import android.view.KeyEvent
 import com.openlauncher.app.model.NowPlayingState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,6 +58,41 @@ class MediaListenerService : NotificationListenerService() {
         activeController = null
     }
 
+    // ── Auto-wake (steering-wheel PLAY key without the steering wheel) ───────────
+    // refreshNowPlaying() runs on EVERY notification posted/removed system-wide, so
+    // the wake attempt must stay heavily throttled: cooldown + a hard attempt cap
+    // (re-armed whenever a session comes back). Sends a media PLAY key exactly like
+    // a play button would — no activity launch, no focus steal.
+    private var wakeAttempts = 0
+    private var lastWakeElapsedMs = 0L
+
+    private fun maybeAutoWake() {
+        val pkg = autoConnectPackage ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastWakeElapsedMs < WAKE_COOLDOWN_MS) return
+        if (wakeAttempts >= MAX_WAKE_ATTEMPTS) return
+        wakeAttempts++
+        lastWakeElapsedMs = now
+        Log.i(TAG, "auto-wake attempt $wakeAttempts/$MAX_WAKE_ATTEMPTS: media PLAY key -> $pkg")
+        val whenMs = SystemClock.uptimeMillis()
+        val down = KeyEvent(whenMs, whenMs, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY, 0)
+        val up = KeyEvent(whenMs, whenMs, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY, 0)
+        // Preferred: targeted broadcast so only the chosen app's MediaButtonReceiver
+        // gets the key. If the receiver's permission gate rejects our send, fall
+        // back to the system media-key dispatcher (routes to the active session).
+        try {
+            for (ev in arrayOf(down, up)) {
+                val intent = Intent(Intent.ACTION_MEDIA_BUTTON).setPackage(pkg)
+                intent.putExtra(Intent.EXTRA_KEY_EVENT, ev)
+                sendBroadcast(intent)
+            }
+        } catch (_: Exception) {
+            val am = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return
+            am.dispatchMediaKeyEvent(down)
+            am.dispatchMediaKeyEvent(up)
+        }
+    }
+
     private fun refreshNowPlaying() {
         val msm = getSystemService(MEDIA_SESSION_SERVICE) as? MediaSessionManager ?: return
         val sessions: List<MediaController> = try {
@@ -67,8 +107,10 @@ class MediaListenerService : NotificationListenerService() {
         if (active == null) {
             clearController()
             _nowPlaying.value = null
+            maybeAutoWake()
             return
         }
+        wakeAttempts = 0 // a live session exists again — re-arm the waker
 
         // getActiveSessions returns NEW MediaController instances on every call —
         // compare session tokens, not references, or we churn callbacks and
@@ -131,6 +173,17 @@ class MediaListenerService : NotificationListenerService() {
     }
 
     companion object {
+        private const val TAG = "MediaAutoConnect"
+        private const val WAKE_COOLDOWN_MS = 20_000L
+        private const val MAX_WAKE_ATTEMPTS = 4
+
+        /** The media app the auto-wake targets (visible via QUERY_ALL_PACKAGES + <queries>). */
+        const val SPOTIFY_PACKAGE = "com.spotify.music"
+
+        /** Package to re-wake when no session is alive; null disables auto-wake.
+         *  Set by LauncherViewModel from the spotifyAutoConnect setting. */
+        @Volatile var autoConnectPackage: String? = null
+
         private val _nowPlaying = MutableStateFlow<NowPlayingState?>(null)
         val nowPlaying: StateFlow<NowPlayingState?> = _nowPlaying
         val isConnected = MutableStateFlow(false)

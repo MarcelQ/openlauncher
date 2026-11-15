@@ -370,6 +370,22 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            SettingsDivider()
+
+            // Media (Now Playing card)
+            SettingsRow(
+                label    = "Spotify Auto-Wake",
+                sublabel = "Send a play key to Spotify when the Now Playing card is idle — " +
+                    "wakes its session without launching or focusing the app",
+                icon     = Icons.Default.Speaker
+            ) {
+                Switch(
+                    checked         = settings.spotifyAutoConnect,
+                    onCheckedChange = { onUpdate { copy(spotifyAutoConnect = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
         }
 
         // ── Sidebar Shortcuts ─────────────────────────────────────────────────

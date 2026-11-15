@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.database.ContentObserver
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
@@ -552,6 +553,23 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun skipNext() { nowPlaying.value?.controller?.transportControls?.skipToNext() }
     fun skipPrev() { nowPlaying.value?.controller?.transportControls?.skipToPrevious() }
 
+    // Card volume buttons drive the SYSTEM music stream (same action as the rotary
+    // knob), so they work even when no media session is alive to receive commands.
+    private val audioManager: AudioManager?
+        get() = (getApplication() as Application).getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+
+    fun volumeDown() {
+        // ADJ_LOWER is a documented direction *value* (-1), not a named constant.
+        audioManager?.adjustStreamVolume(
+            AudioManager.STREAM_MUSIC, /* direction = */ -1, /* flags = */ 0)
+    }
+
+    fun volumeUp() {
+        // ADJ_RAISE is a documented direction *value* (+1), not a named constant.
+        audioManager?.adjustStreamVolume(
+            AudioManager.STREAM_MUSIC, /* direction = */ +1, /* flags = */ 0)
+    }
+
     // ── Weather ───────────────────────────────────────────────────────────────
     private val _weather = MutableStateFlow<WeatherState?>(null)
     val weather: StateFlow<WeatherState?> = _weather
@@ -635,7 +653,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     // Settings drive the repository: having a TPMS card on any page is what arms auto-connect.
     init {
         viewModelScope.launch {
-            settings.collect { s -> tpms.configure(s.hasWidgetType("TPMS"), s.tpmsAutoConnect) }
+            settings.collect { s ->
+                tpms.configure(s.hasWidgetType("TPMS"), s.tpmsAutoConnect)
+                // Hand the Now Playing service its auto-wake target; the flip
+                // from off→on asks for an immediate re-check of the sessions.
+                val target = if (s.spotifyAutoConnect) MediaListenerService.SPOTIFY_PACKAGE else null
+                if (MediaListenerService.autoConnectPackage != target) {
+                    MediaListenerService.autoConnectPackage = target
+                    if (target != null) MediaListenerService.requestRefresh()
+                }
+            }
         }
     }
 

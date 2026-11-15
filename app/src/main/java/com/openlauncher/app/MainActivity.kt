@@ -224,6 +224,8 @@ class MainActivity : ComponentActivity() {
                                         onPlayPause         = vm::playPause,
                                         onNext              = vm::skipNext,
                                         onPrev              = vm::skipPrev,
+                                        onVolumeDown        = vm::volumeDown,
+                                        onVolumeUp          = vm::volumeUp,
                                         onLaunchCarPlay     = { vm.launchApp(settings.carPlayPackage) },
                                         onLaunchAndroidAuto = { vm.launchApp(settings.androidAutoPackage) },
                                         onAssignCarPlay     = { vm.startCarPlayPicker() },

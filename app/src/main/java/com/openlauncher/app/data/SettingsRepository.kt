@@ -53,6 +53,7 @@ class SettingsRepository(private val context: Context) {
         val BRIGHTNESS_MEDIUM_PCT = intPreferencesKey("brightness_medium_pct")
         val BRIGHTNESS_LOW_PCT    = intPreferencesKey("brightness_low_pct")
         val TPMS_AUTO_CONNECT     = booleanPreferencesKey("tpms_auto_connect")
+        val SPOTIFY_AUTO_CONNECT  = booleanPreferencesKey("spotify_auto_connect")
         val TPMS_PRESSURE_UNIT    = stringPreferencesKey("tpms_pressure_unit")
         val TPMS_LOW_PRESSURE_KPA = floatPreferencesKey("tpms_low_pressure_kpa")
         val TPMS_ALARM_ENABLED    = booleanPreferencesKey("tpms_alarm_enabled")
@@ -196,6 +197,7 @@ class SettingsRepository(private val context: Context) {
                 brightnessMediumPct = prefs[Keys.BRIGHTNESS_MEDIUM_PCT]?.coerceIn(1, 100) ?: defaults.brightnessMediumPct,
                 brightnessLowPct    = prefs[Keys.BRIGHTNESS_LOW_PCT]?.coerceIn(1, 100)    ?: defaults.brightnessLowPct,
                 tpmsAutoConnect  = prefs[Keys.TPMS_AUTO_CONNECT] ?: defaults.tpmsAutoConnect,
+                spotifyAutoConnect = prefs[Keys.SPOTIFY_AUTO_CONNECT] ?: defaults.spotifyAutoConnect,
                 tpmsPressureUnit = prefs[Keys.TPMS_PRESSURE_UNIT]?.let {
                     runCatching { PressureUnit.valueOf(it) }.getOrNull()
                 } ?: defaults.tpmsPressureUnit,
@@ -270,6 +272,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.BRIGHTNESS_MEDIUM_PCT] = s.brightnessMediumPct
             prefs[Keys.BRIGHTNESS_LOW_PCT]    = s.brightnessLowPct
             prefs[Keys.TPMS_AUTO_CONNECT]  = s.tpmsAutoConnect
+            prefs[Keys.SPOTIFY_AUTO_CONNECT] = s.spotifyAutoConnect
             prefs[Keys.TPMS_PRESSURE_UNIT] = s.tpmsPressureUnit.name
             prefs[Keys.TPMS_LOW_PRESSURE_KPA] = s.tpmsLowPressureKpa
             prefs[Keys.TPMS_ALARM_ENABLED] = s.tpmsAlarmEnabled
