@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
             val bearing     by vm.compassBearing.collectAsStateWithLifecycle()
             val isWifi      by vm.isWifi.collectAsStateWithLifecycle()
             val isData      by vm.isData.collectAsStateWithLifecycle()
+            val editMode    by vm.rearrangeMode.collectAsStateWithLifecycle()
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
             val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
             val tpmsSnapshot  by vm.tpmsSnapshot.collectAsStateWithLifecycle()
@@ -180,7 +181,19 @@ class MainActivity : ComponentActivity() {
                                     onShortcutLongPress  = { slot -> vm.startShortcutPicker(slot) },
                                     onShortcutRemove     = { slot -> vm.removeShortcut(slot) },
                                     onShortcutSetIcon    = { slot, icon -> vm.setShortcutIcon(slot, icon) },
-                                    onReorder            = { from, to -> vm.reorderShortcut(from, to) }
+                                    onReorder            = { from, to -> vm.reorderShortcut(from, to) },
+                                    // Long-press on the Settings cog enters home-screen
+                                    // edit mode (the Edit button in the header was removed)
+                                    onRearrangeRequested = {
+                                        if (nav == NavDestination.HOME) {
+                                            vm.toggleRearrangeMode()
+                                        } else {
+                                            vm.cancelShortcutPicker()
+                                            vm.cancelCarPlayPicker()
+                                            vm.navigate(NavDestination.HOME)
+                                            vm.setRearrangeMode(true)
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -206,6 +219,8 @@ class MainActivity : ComponentActivity() {
                                         isWifi              = isWifi,
                                         isData              = isData,
                                         isDayMode           = isDayMode,
+                                        editMode            = editMode,
+                                        onToggleEditMode    = { vm.toggleRearrangeMode() },
                                         onPlayPause         = vm::playPause,
                                         onNext              = vm::skipNext,
                                         onPrev              = vm::skipPrev,

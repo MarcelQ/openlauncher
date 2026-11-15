@@ -135,6 +135,8 @@ fun HomeScreen(
     isWifi: Boolean,
     isData: Boolean,
     isDayMode: Boolean = false,
+    editMode: Boolean = false,
+    onToggleEditMode: () -> Unit = {},
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrev: () -> Unit,
@@ -188,15 +190,10 @@ fun HomeScreen(
         hasWallpaper -> Color(0x22FFFFFF)
         else         -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
     }
-    val headerTextColor   = if (isDayMode) Color(0xFF111111) else accent
     val statusIconColor   = if (isDayMode) Color(0xFF444444) else Color(0xFF666666)
-    val controlIconColor  = if (isDayMode) Color(0xFF666666) else Color(0xFF444444)
 
     var contextMenuId by remember { mutableStateOf<String?>(null) }
 
-    val configuration    = LocalConfiguration.current
-    val isLandscape      = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    var editMode         by remember { mutableStateOf(false) }
     var widgetLibraryOpen by remember { mutableStateOf(false) }
     var gridDialogPage  by remember { mutableStateOf<Int?>(null) }
 
@@ -207,62 +204,10 @@ fun HomeScreen(
 
     Column(modifier = modifier.fillMaxSize()) {
 
-        // ── Header ──────────────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .padding(horizontal = 20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text          = settings.vehicleName.uppercase(),
-                style         = MaterialTheme.typography.titleLarge,
-                color         = headerTextColor,
-                letterSpacing = 3.sp,
-                fontSize      = 14.sp
-            )
-            Spacer(Modifier.weight(1f))
-            AnimatedVisibility(visible = isWifi, enter = fadeIn(), exit = fadeOut()) {
-                Icon(Icons.Default.Wifi, "WiFi", tint = statusIconColor, modifier = Modifier.size(16.dp))
-            }
-            if (isWifi) Spacer(Modifier.width(6.dp))
-            AnimatedVisibility(visible = isData, enter = fadeIn(), exit = fadeOut()) {
-                Icon(Icons.Default.SignalCellularAlt, "Data", tint = statusIconColor, modifier = Modifier.size(16.dp))
-            }
-            if (isLandscape) {
-                Spacer(Modifier.width(8.dp))
-                if (editMode) {
-                    IconButton(
-                        onClick  = { widgetLibraryOpen = true },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector        = Icons.Default.Dashboard,
-                            contentDescription = "Widget library",
-                            tint               = controlIconColor,
-                            modifier           = Modifier.size(15.dp)
-                        )
-                    }
-                    Spacer(Modifier.width(2.dp))
-                }
-                IconButton(
-                    onClick  = { editMode = !editMode },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector        = Icons.Default.Edit,
-                        contentDescription = "Edit widgets",
-                        tint               = if (editMode) accent else controlIconColor,
-                        modifier           = Modifier.size(15.dp)
-                    )
-                }
-            }
-        }
-
-        HorizontalDivider(color = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF141414))
-
         // ── Paged widget grids ──────────────────────────────────────────────
+        // The old header bar (vehicle title + Edit button) was removed to give
+        // the cards the full screen. Edit mode is entered by long-pressing the
+        // Settings cog in the sidebar (wired through LauncherViewModel.rearrangeMode).
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             HorizontalPager(
                 state    = pagerState,
@@ -308,6 +253,21 @@ fun HomeScreen(
                 )
             }
 
+            // Status icons now float over the grid top-right; the old 48 dp
+            // header bar that used to hold them was removed.
+            Row(
+                modifier            = Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                AnimatedVisibility(visible = isWifi, enter = fadeIn(), exit = fadeOut()) {
+                    Icon(Icons.Default.Wifi, "WiFi", tint = statusIconColor, modifier = Modifier.size(16.dp))
+                }
+                AnimatedVisibility(visible = isData, enter = fadeIn(), exit = fadeOut()) {
+                    Icon(Icons.Default.SignalCellularAlt, "Data", tint = statusIconColor, modifier = Modifier.size(16.dp))
+                }
+            }
+
             // Page dots + edit-mode page/grid controls, floating bottom-center
             if (settings.pages.size > 1 || editMode) {
                 PageIndicatorBar(
@@ -321,7 +281,11 @@ fun HomeScreen(
                     isDayMode    = isDayMode,
                     onAddPage    = onAddPage,
                     onRemovePage = onRemovePage,
-                    onGridDialog = { gridDialogPage = currentPage }
+                    onGridDialog = { gridDialogPage = currentPage },
+                    // The header's Edit/Widget-library buttons moved here so
+                    // edit mode can be left and new cards added from one strip.
+                    onAddWidget  = { widgetLibraryOpen = true },
+                    onDone       = onToggleEditMode
                 )
             }
         }
@@ -821,7 +785,9 @@ private fun PageIndicatorBar(
     isDayMode: Boolean,
     onAddPage: () -> Unit,
     onRemovePage: (Int) -> Unit,
-    onGridDialog: () -> Unit
+    onGridDialog: () -> Unit,
+    onAddWidget: () -> Unit = {},
+    onDone: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val pageEmpty = instancesOnPage(widgets, currentPage).isEmpty()
@@ -836,6 +802,14 @@ private fun PageIndicatorBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment     = Alignment.CenterVertically
             ) {
+                // Entry points that used to live in the (now removed) header bar
+                PageChip(
+                    label     = "ADD WIDGET",
+                    enabled   = true,
+                    accent    = accent,
+                    isDayMode = isDayMode,
+                    onClick   = onAddWidget
+                )
                 val canRemove = pages.size > 1 && pageEmpty
                 PageChip(
                     label   = "−",
@@ -858,6 +832,13 @@ private fun PageIndicatorBar(
                     accent  = accent,
                     isDayMode = isDayMode,
                     onClick = onAddPage
+                )
+                PageChip(
+                    label     = "DONE",
+                    enabled   = true,
+                    accent    = accent,
+                    isDayMode = isDayMode,
+                    onClick   = onDone
                 )
             }
             Spacer(Modifier.height(6.dp))

@@ -56,6 +56,7 @@ fun Sidebar(
     onShortcutRemove: (Int) -> Unit,
     onShortcutSetIcon: (Int, DefaultShortcutIcon?) -> Unit,
     onReorder: (from: Int, to: Int) -> Unit,
+    onRearrangeRequested: () -> Unit = {},
     isHorizontal: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -142,7 +143,10 @@ fun Sidebar(
             accent       = accent,
             iconInactive = iconInactive,
             isHorizontal = isHorizontal,
-            onClick      = { onNavigate(NavDestination.SETTINGS) }
+            onClick      = { onNavigate(NavDestination.SETTINGS) },
+            // Long-press opens the home-screen rearrange menu (the Edit button
+            // was removed from the home header, so this is its entry point)
+            onLongClick  = { onRearrangeRequested() }
         )
         NavButton(
             icon         = Icons.Default.Home,
@@ -184,13 +188,13 @@ fun Sidebar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!settings.bottomBarShortcutsRight) {
-                    NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true) { onNavigate(NavDestination.HOME) }
-                    NavButton(Icons.Default.Settings, "Settings", currentDest == NavDestination.SETTINGS,    accent, iconInactive, true) { onNavigate(NavDestination.SETTINGS) }
-                    NavButton(Icons.Default.Apps,     "Apps",     currentDest == NavDestination.APP_LIBRARY, accent, iconInactive, true) { onNavigate(NavDestination.APP_LIBRARY) }
+                    NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true, onClick = { onNavigate(NavDestination.HOME) })
+                    NavButton(Icons.Default.Settings, "Settings", currentDest == NavDestination.SETTINGS,    accent, iconInactive, true, onClick = { onNavigate(NavDestination.SETTINGS) }, onLongClick = { onRearrangeRequested() })
+                    NavButton(Icons.Default.Apps,     "Apps",     currentDest == NavDestination.APP_LIBRARY, accent, iconInactive, true, onClick = { onNavigate(NavDestination.APP_LIBRARY) })
                 } else {
-                    NavButton(Icons.Default.Apps,     "Apps",     currentDest == NavDestination.APP_LIBRARY, accent, iconInactive, true) { onNavigate(NavDestination.APP_LIBRARY) }
-                    NavButton(Icons.Default.Settings, "Settings", currentDest == NavDestination.SETTINGS,    accent, iconInactive, true) { onNavigate(NavDestination.SETTINGS) }
-                    NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true) { onNavigate(NavDestination.HOME) }
+                    NavButton(Icons.Default.Apps,     "Apps",     currentDest == NavDestination.APP_LIBRARY, accent, iconInactive, true, onClick = { onNavigate(NavDestination.APP_LIBRARY) })
+                    NavButton(Icons.Default.Settings, "Settings", currentDest == NavDestination.SETTINGS,    accent, iconInactive, true, onClick = { onNavigate(NavDestination.SETTINGS) }, onLongClick = { onRearrangeRequested() })
+                    NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true, onClick = { onNavigate(NavDestination.HOME) })
                 }
             }
         }
@@ -487,6 +491,7 @@ private fun IconPickerDialog(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NavButton(
     icon: ImageVector,
@@ -495,7 +500,8 @@ private fun NavButton(
     accent: Color,
     iconInactive: Color,
     isHorizontal: Boolean = false,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     val isDayMode = LocalDayMode.current
     val activeIconColor = if (isDayMode) Color(0xFF111111) else Color.White
@@ -508,7 +514,12 @@ private fun NavButton(
                 else              Modifier.fillMaxWidth().height(SLOT_SIZE)
             )
             .background(if (isActive) activeBg else Color.Transparent)
-            .clickable(onClick = onClick)
+            .then(
+                if (onLongClick != null)
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                else
+                    Modifier.clickable(onClick = onClick)
+            )
     ) {
         Icon(
             imageVector        = icon,

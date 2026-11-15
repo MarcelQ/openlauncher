@@ -481,6 +481,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     val rearrangeMode: StateFlow<Boolean> = _rearrangeMode
 
     fun toggleRearrangeMode() { _rearrangeMode.value = !_rearrangeMode.value }
+    fun setRearrangeMode(on: Boolean) { _rearrangeMode.value = on }
     fun exitRearrangeMode()   { _rearrangeMode.value = false }
 
     // ── Installed apps ────────────────────────────────────────────────────────
