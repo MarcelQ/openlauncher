@@ -739,16 +739,31 @@ private fun WidgetPageGrid(
                                     resizeCorner  = corner
                                     resizeDeltaPx = Offset.Zero
                                     var delta = Offset.Zero
+                                    // Only publish state when the snapped cell changes.
+                                    // Writing resizeDeltaPx on every pointer sample
+                                    // recomposes the grid ~60×/s and makes the card
+                                    // being resized visibly flicker; the preview is
+                                    // quantised to cells anyway (see livePreviewResize).
+                                    var lastDx = 0
+                                    var lastDy = 0
                                     while (true) {
                                         val event  = awaitPointerEvent()
                                         val change = event.changes.firstOrNull { it.id == down.id }
                                         event.changes.forEach { it.consume() }
                                         if (change == null || !change.pressed) break
-                                        delta         = change.position - down.position
-                                        resizeDeltaPx = delta
+                                        delta = change.position - down.position
+                                        val sx = (delta.x / cellStepXPx).roundToInt()
+                                        val sy = (delta.y / cellStepYPx).roundToInt()
+                                        if (sx != lastDx || sy != lastDy) {
+                                            lastDx = sx
+                                            lastDy = sy
+                                            // Snap the published offset to whole cells so
+                                            // the preview and the final commit agree.
+                                            resizeDeltaPx = Offset(sx * cellStepXPx, sy * cellStepYPx)
+                                        }
                                     }
-                                    val dx = (delta.x / cellStepXPx).roundToInt()
-                                    val dy = (delta.y / cellStepYPx).roundToInt()
+                                    val dx = lastDx
+                                    val dy = lastDy
                                     if (dx != 0 || dy != 0) {
                                         val r = computeCornerResize(visible, w.id, corner, dx, dy, page.cols, page.rows)
                                         if (r != null) onResizeWidget(r.id, r.gridX, r.gridY, r.spanX, r.spanY)
