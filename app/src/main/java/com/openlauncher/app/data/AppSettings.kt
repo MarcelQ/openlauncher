@@ -104,6 +104,9 @@ data class AppSettings(
     // When the card goes blank (no active media session), quietly re-wake Spotify
     // with a targeted MEDIA_BUTTON key broadcast — no activity launch, no focus steal.
     val spotifyAutoConnect: Boolean = true,
+    // Tap card = play/pause, swipe left/right = next/previous, and the play +
+    // next buttons are hidden (swipe replaces them). Off keeps the classic layout.
+    val mediaTapSwipeControls: Boolean = true,
     // ── Screen brightness ─────────────────────────────────────────────────────────
     // Preset levels are 1..100 (% of the SCREEN_BRIGHTNESS range) and only applied
     // when a card button is tapped or brightnessAuto drives them. Auto needs a GPS

@@ -409,6 +409,21 @@ fun SettingsScreen(
 
             SettingsDivider()
 
+            SettingsRow(
+                label    = "Tap & Swipe Controls",
+                sublabel = "Tap the card to play/pause and swipe left/right for previous/next — " +
+                    "hides the play and next buttons (swipe replaces them)",
+                icon     = Icons.Default.Swipe
+            ) {
+                Switch(
+                    checked         = settings.mediaTapSwipeControls,
+                    onCheckedChange = { onUpdate { copy(mediaTapSwipeControls = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            SettingsDivider()
+
             // Phone mirroring companions (CarPlay / Android Auto apps) —
             // assigned here, launched from the dedicated sidebar buttons
             SettingsRow(

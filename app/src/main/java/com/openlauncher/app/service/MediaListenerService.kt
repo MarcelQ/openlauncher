@@ -220,13 +220,15 @@ class MediaListenerService : NotificationListenerService() {
                 }
             }
         } catch (_: Exception) { emptyList() }
-        if (customActions.map { it.action } !=
-            (prev?.customActions?.map { it.action } ?: emptyList<String>())) {
+        if (customActions.map { "${it.action}|${it.title}" } !=
+            (prev?.customActions?.map { "${it.action}|${it.title}" } ?: emptyList<String>())) {
             val shuffleIdx = com.openlauncher.app.model.findShuffleActionIndex(customActions)
+            val found = customActions.getOrNull(shuffleIdx)
             Log.i(TAG, "custom actions from ${controller.packageName}: " +
                     (if (customActions.isEmpty()) "none"
-                     else customActions.joinToString { it.action }) +
-                    "; shuffle=" + (customActions.getOrNull(shuffleIdx)?.action ?: "not exposed"))
+                     else customActions.joinToString { "${it.action} (${it.title})" }) +
+                    "; shuffle=" + (found?.let { "${it.action} -> active=${com.openlauncher.app.model.shuffleStateFromTitle(it.title) ?: "unknown"}" }
+                        ?: "not exposed"))
         }
 
         // Skip redundant emissions: metadata bitmaps parcel into fresh instances on
@@ -237,7 +239,8 @@ class MediaListenerService : NotificationListenerService() {
             prev.title == title && prev.artist == artist &&
             prev.isPlaying == isPlaying && prev.artUri == artUri &&
             prev.queue == queue && prev.activeQueueItemId == activeQueueItemId &&
-            prev.customActions.map { it.action } == customActions.map { it.action } &&
+            prev.customActions.map { "${it.action}|${it.title}" } ==
+                customActions.map { "${it.action}|${it.title}" } &&
             (prev.albumArt != null) == (art != null)
         ) return
 

@@ -89,4 +89,18 @@ class NowPlayingQueueTest {
         assertEquals(100, volumePercent(current = 99, max = 15))
         assertEquals(0, volumePercent(current = -2, max = 15))
     }
+
+    @Test
+    fun `swipe maps to transport actions past the slop threshold`() {
+        // Swipe left (negative dx) past slop -> next (+1)
+        assertEquals(1, swipeTransportAction(deltaPx = -120f, slopPx = 60f))
+        // Swipe right -> previous (-1)
+        assertEquals(-1, swipeTransportAction(deltaPx = 120f, slopPx = 60f))
+        // Exactly at the threshold counts.
+        assertEquals(1, swipeTransportAction(deltaPx = -60f, slopPx = 60f))
+        // Under slop (or a tap) does nothing.
+        assertEquals(0, swipeTransportAction(deltaPx = -59f, slopPx = 60f))
+        assertEquals(0, swipeTransportAction(deltaPx = 12f, slopPx = 60f))
+        assertEquals(0, swipeTransportAction(deltaPx = 0f, slopPx = 60f))
+    }
 }

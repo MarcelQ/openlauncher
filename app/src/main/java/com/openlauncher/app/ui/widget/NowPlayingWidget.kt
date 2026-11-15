@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -38,9 +39,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +54,7 @@ import com.openlauncher.app.model.NowPlayingCustomAction
 import com.openlauncher.app.model.NowPlayingQueueItem
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.model.findShuffleActionIndex
+import com.openlauncher.app.model.shuffleStateFromTitle
 import com.openlauncher.app.service.MediaListenerService
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -70,6 +74,8 @@ fun NowPlayingWidget(
     // inline instead of in a dialog
     spanColumns: Int = 1,
     spanRows: Int = 1,
+    // Tap card = play/pause, swipe = prev/next, hides the play + next buttons
+    tapSwipeControls: Boolean = false,
     modifier: Modifier = Modifier,
     isEditing: Boolean = false,
     isDayMode: Boolean = false,
@@ -143,6 +149,7 @@ fun NowPlayingWidget(
                 onVolumeUp = onVolumeUp,
                 spanColumns = spanColumns,
                 spanRows = spanRows,
+                tapSwipeControls = tapSwipeControls,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -537,6 +544,7 @@ private fun StandardMinimalPlayer(
     onVolumeUp: () -> Unit,
     spanColumns: Int,
     spanRows: Int,
+    tapSwipeControls: Boolean,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -609,9 +617,13 @@ private fun StandardMinimalPlayer(
             // shuffle custom action on its session (see MediaListenerService).
             val shuffleAction = nonNullState.customActions
                 .getOrNull(findShuffleActionIndex(nonNullState.customActions))
-            // Custom actions are fire-and-forget — the session never reports
-            // shuffle state back — so the button mirrors the last toggle we sent.
-            var shuffleOn by remember(shuffleAction?.action) { mutableStateOf(false) }
+            // The platform never reports shuffle state, but many apps carry it in
+            // the action title ("Shuffle on"/"Shuffle: off"). Prefer that real
+            // state so the button lights up when shuffle is genuinely active; the
+            // local mirror is only a fallback for titles that say nothing.
+            val shuffleTitleState = shuffleAction?.let { shuffleStateFromTitle(it.title) }
+            var shuffleToggled by remember(shuffleAction?.action) { mutableStateOf(false) }
+            val shuffleOn = shuffleTitleState ?: shuffleToggled
             val durationMs = nonNullState.controller?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
 
             LaunchedEffect(nonNullState.isPlaying, nonNullState.title) {
@@ -666,6 +678,58 @@ private fun StandardMinimalPlayer(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.25f))
+                )
+            }
+
+            // Top scrim so the title stays readable against busy artwork (and
+            // over the card's own background in the dark theme). Tinted to be
+            // the opposite of the adaptive title color: dark scrim under light
+            // text, light scrim under dark text.
+            val scrimTint = if (currentTextColor == Color(0xFF111111)) Color.White else Color.Black
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            0f to scrimTint.copy(alpha = 0.55f),
+                            1f to scrimTint.copy(alpha = 0f)
+                        )
+                    )
+            )
+
+            // Tap-to-pause + swipe transport (Settings ▸ Tap & Swipe Controls).
+            // The overlay sits BEHIND the content Column: taps on real controls
+            // (buttons, title) are caught by them first; anything landing on
+            // bare card area becomes play/pause, and a horizontal drag becomes
+            // prev/next. Consumed here, so a swipe on this card never turns
+            // into a home-screen page flip.
+            if (tapSwipeControls && !isEditing) {
+                val swipeSlopPx = with(LocalDensity.current) { 36.dp.toPx() }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(tapSwipeControls, nonNullState.controller) {
+                            detectTapGestures { onPlayPause() }
+                        }
+                        .pointerInput(tapSwipeControls, nonNullState.controller) {
+                            var totalDrag = 0f
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    when (swipeTransportAction(totalDrag, swipeSlopPx)) {
+                                        1 -> onNext()
+                                        -1 -> onPrev()
+                                    }
+                                },
+                                onDragCancel = { totalDrag = 0f }
+                            ) { change, dragAmountX ->
+                                // detectHorizontalDragGestures already hands us
+                                // the horizontal delta as a Float.
+                                change.consume()
+                                totalDrag += dragAmountX
+                            }
+                        }
                 )
             }
 
@@ -748,9 +812,9 @@ private fun StandardMinimalPlayer(
                                 active    = shuffleOn,
                                 isEditing = isEditing,
                                 onClick = {
-                                    // Custom actions are fire-and-forget — the
-                                    // mirror of the toggle stays local.
-                                    shuffleOn = !shuffleOn
+                                    // Optimistic mirror until the app's action
+                                    // title confirms the real state.
+                                    shuffleToggled = !shuffleOn
                                     try {
                                         nonNullState.controller?.transportControls
                                             ?.sendCustomAction(shuffleAction.action, shuffleAction.extras)
@@ -758,7 +822,8 @@ private fun StandardMinimalPlayer(
                                 }
                             ) {
                                 Icon(
-                                    Icons.Default.Shuffle, "Shuffle",
+                                    Icons.Default.Shuffle,
+                                    contentDescription = if (shuffleOn) "Shuffle on" else "Shuffle off",
                                     tint = if (shuffleOn) accent else currentIconColor,
                                     modifier = Modifier.size(24.dp)
                                 )
@@ -770,27 +835,32 @@ private fun StandardMinimalPlayer(
                         ) {
                             Icon(Icons.Default.SkipPrevious, "Prev", tint = currentIconColor, modifier = Modifier.size(30.dp))
                         }
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(CircleShape)
-                                .background(currentPlayBgColor)
-                        ) {
-                            IconButton(onClick = { if (!isEditing) onPlayPause() }, modifier = Modifier.size(64.dp)) {
-                                Icon(
-                                    imageVector = if (nonNullState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = if (nonNullState.isPlaying) "Pause" else "Play",
-                                    tint = currentPlayIconColor,
-                                    modifier = Modifier.size(30.dp)
-                                )
+                        // With Tap & Swipe Controls the gesture layer replaces
+                        // play/pause (tap) and next (swipe) — prev stays visible
+                        // for a single obvious back jump.
+                        if (!tapSwipeControls) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(currentPlayBgColor)
+                            ) {
+                                IconButton(onClick = { if (!isEditing) onPlayPause() }, modifier = Modifier.size(64.dp)) {
+                                    Icon(
+                                        imageVector = if (nonNullState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (nonNullState.isPlaying) "Pause" else "Play",
+                                        tint = currentPlayIconColor,
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
                             }
-                        }
-                        MediaHitBox(
-                            size = 56.dp, accent = accent, isEditing = isEditing,
-                            onClick = onNext
-                        ) {
-                            Icon(Icons.Default.SkipNext, "Next", tint = currentIconColor, modifier = Modifier.size(30.dp))
+                            MediaHitBox(
+                                size = 56.dp, accent = accent, isEditing = isEditing,
+                                onClick = onNext
+                            ) {
+                                Icon(Icons.Default.SkipNext, "Next", tint = currentIconColor, modifier = Modifier.size(30.dp))
+                            }
                         }
                         // Offline queue view: the queue is served by the OS from
                         // the source app's session — no internet involved. The
@@ -1167,4 +1237,14 @@ internal fun inlineQueueAllowed(spanColumns: Int, spanRows: Int): Boolean =
 /** System music stream level as a whole percentage; 0 when no stream exists. */
 internal fun volumePercent(current: Int, max: Int): Int =
     if (max <= 0) 0 else ((current.toFloat() / max) * 100f).roundToInt().coerceIn(0, 100)
+
+/**
+ * Which transport action a horizontal drag means: +1 next (swipe left),
+ * -1 previous (swipe right), 0 while under the slop threshold.
+ */
+internal fun swipeTransportAction(deltaPx: Float, slopPx: Float): Int = when {
+    deltaPx <= -slopPx -> 1
+    deltaPx >= slopPx  -> -1
+    else               -> 0
+}
 

@@ -47,12 +47,35 @@ data class NowPlayingCustomAction(
 /**
  * Index of the first custom action that is a shuffle toggle, or -1 when the
  * source exposes none. Prefer the human-readable title (apps name it
- * "Shuffle"/"Shuffle off"), fall back to the action id. Matching is
- * substring-based and case-insensitive — action ids look like
- * "com.spotify.action.TOGGLE_SHUFFLE".
+ * "Shuffle"/"Shuffle off"/"Play in random order"), fall back to the action
+ * id. Matching is substring-based and case-insensitive — action ids look
+ * like "com.spotify.action.TOGGLE_SHUFFLE".
  */
 internal fun findShuffleActionIndex(actions: List<NowPlayingCustomAction>): Int {
-    val byTitle = actions.indexOfFirst { it.title.contains("shuffle", ignoreCase = true) }
+    val byTitle = actions.indexOfFirst {
+        it.title.contains("shuffle", ignoreCase = true) ||
+            it.title.contains("random", ignoreCase = true)
+    }
     if (byTitle >= 0) return byTitle
-    return actions.indexOfFirst { it.action.contains("shuffle", ignoreCase = true) }
+    return actions.indexOfFirst {
+        it.action.contains("shuffle", ignoreCase = true) ||
+            it.action.contains("random", ignoreCase = true)
+    }
+}
+
+/**
+ * Current shuffle state encoded in the action's own title, when the app
+ * bothers to carry it ("Shuffle: off", "Shuffle On"). Returns null when the
+ * title says nothing about the state — the caller then falls back to
+ * mirroring its own last toggle.
+ */
+internal fun shuffleStateFromTitle(title: String): Boolean? {
+    val t = title.lowercase()
+    return when {
+        Regex("shuffle\\W*off").containsMatchIn(t) -> false
+        Regex("shuffle\\W*on").containsMatchIn(t)  -> true
+        Regex("random\\W*off").containsMatchIn(t)  -> false
+        Regex("random\\W*on").containsMatchIn(t)   -> true
+        else -> null
+    }
 }

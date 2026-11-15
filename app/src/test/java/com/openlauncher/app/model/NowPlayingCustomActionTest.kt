@@ -56,4 +56,31 @@ class NowPlayingCustomActionTest {
         val actions = listOf(action("x.y.ACTION", "Shuffle: Off"))
         assertEquals(0, findShuffleActionIndex(actions))
     }
+
+    @Test
+    fun `random-order wording counts as shuffle`() {
+        assertEquals(0, findShuffleActionIndex(listOf(action("x.y.TOGGLE_ORDER", "Play in random order"))))
+        assertEquals(0, findShuffleActionIndex(listOf(action("x.y.TOGGLE_RANDOM", "Repeat"))))
+    }
+
+    // ── shuffle STATE encoded in the action title ─────────────────────────────
+
+    @Test
+    fun `state read from title`() {
+        assertEquals(true,  shuffleStateFromTitle("Shuffle On"))
+        assertEquals(true,  shuffleStateFromTitle("shuffle:on"))
+        assertEquals(false, shuffleStateFromTitle("Shuffle: Off"))
+        assertEquals(false, shuffleStateFromTitle("shuffle off"))
+        assertEquals(true,  shuffleStateFromTitle("Random on"))
+        assertEquals(false, shuffleStateFromTitle("Random: off"))
+    }
+
+    @Test
+    fun `stateless titles report unknown`() {
+        assertEquals(null, shuffleStateFromTitle("Shuffle"))
+        assertEquals(null, shuffleStateFromTitle("Play in random order"))
+        assertEquals(null, shuffleStateFromTitle(""))
+        // "on" only counts in the shuffle/random phrase context, not anywhere.
+        assertEquals(null, shuffleStateFromTitle("Repeat one"))
+    }
 }

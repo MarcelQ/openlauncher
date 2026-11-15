@@ -614,6 +614,7 @@ private fun WidgetPageGrid(
                         onVolumeUp          = onVolumeUp,
                         spanColumns         = w.spanX,
                         spanRows            = w.spanY,
+                        tapSwipeControls    = settings.mediaTapSwipeControls,
                         modifier            = Modifier.fillMaxSize(),
                         isEditing           = editMode,
                         isDayMode           = isDayMode,
