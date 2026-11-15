@@ -11,6 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -43,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.openlauncher.app.model.NowPlayingQueueItem
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.service.MediaListenerService
 import kotlin.math.abs
@@ -627,6 +631,7 @@ private fun StandardMinimalPlayer(
             // Non-null playing track state
             val nonNullState = state!!
             var positionMs by remember { mutableLongStateOf(nonNullState.controller?.playbackState?.position ?: 0L) }
+            var showQueue by remember { mutableStateOf(false) }
             val durationMs = nonNullState.controller?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
 
             LaunchedEffect(nonNullState.isPlaying, nonNullState.title) {
@@ -776,10 +781,131 @@ private fun StandardMinimalPlayer(
                             Icon(Icons.Default.VolumeUp, "Volume up", tint = currentIconColor, modifier = Modifier.size(22.dp))
                         }
                     }
+
+                    // Offline playlist view: the queue is read from the media
+                    // session by the OS, no internet involved. Only offer it
+                    // when the source app actually exposes a queue.
+                    if (nonNullState.queue.size >= 2) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(currentTextColor.copy(alpha = 0.08f))
+                                .let { if (isEditing) it else it.clickable { showQueue = true } }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.QueueMusic, null, tint = currentIconColor, modifier = Modifier.size(12.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "PLAYLIST · ${nonNullState.queue.size}",
+                                color = currentIconColor,
+                                fontSize = 8.sp,
+                                letterSpacing = 1.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
+            }
+
+            if (showQueue) {
+                NowPlayingQueueDialog(
+                    state = nonNullState,
+                    accent = accent,
+                    isDayMode = isDayMode,
+                    onDismiss = { showQueue = false }
+                )
             }
         }
     }
+}
+
+/**
+ * Playlist sheet for the current media queue. Everything is served by the OS
+ * from the source app's MediaSession — no network involved — and tapping a
+ * row jumps the source app to that queue item via its TransportControls.
+ */
+@Composable
+private fun NowPlayingQueueDialog(
+    state: NowPlayingState,
+    accent: Color,
+    isDayMode: Boolean,
+    onDismiss: () -> Unit
+) {
+    val queue = state.queue
+    val currentIndex = queueHighlightIndex(state.activeQueueItemId, queue, state.title)
+    val titleColor = if (isDayMode) Color(0xFF111111) else Color.White
+    val rowColor = if (isDayMode) Color(0xFF444444) else Color(0xFFB8C4D0)
+    val subColor = if (isDayMode) Color(0xFF777777) else Color(0xFF6B7684)
+    val numColor = if (isDayMode) Color(0xFF888888) else Color(0xFF55606C)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = if (isDayMode) Color(0xFFFAFAFA) else Color(0xFF14181D),
+        title = {
+            Text(
+                "PLAYLIST · ${queue.size} TRACKS",
+                color = titleColor,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+        },
+        text = {
+            LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
+                itemsIndexed(queue) { index, item ->
+                    val active = index == currentIndex
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (active) accent.copy(alpha = 0.18f) else Color.Transparent)
+                            .clickable {
+                                state.controller?.transportControls?.skipToQueueItem(item.id)
+                                onDismiss()
+                            }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "%02d".format(index + 1),
+                            color = if (active) accent else numColor,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                item.title,
+                                color = if (active) titleColor else rowColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 12.sp,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+                            )
+                            if (item.subtitle.isNotEmpty()) {
+                                Text(
+                                    item.subtitle,
+                                    color = subColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 9.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CLOSE", color = accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            }
+        }
+    )
 }
 
 private fun formatMs(ms: Long): String {
@@ -814,5 +940,25 @@ private fun sampleArtPixels(art: Bitmap?): IntArray? {
     } catch (_: Exception) {
         null // recycle race with the media session, etc. — fall back to white text
     }
+}
+
+// ── Queue highlight helper (pure part JVM-tested in NowPlayingQueueTest) ─────
+/**
+ * Which playlist row represents the currently playing track. Prefer the
+ * session's activeQueueItemId; apps that leave it unset (-1) or stale fall
+ * back to a case-insensitive title match. Returns -1 when nothing matches.
+ */
+internal fun queueHighlightIndex(
+    activeQueueItemId: Long,
+    queue: List<NowPlayingQueueItem>,
+    playingTitle: String?
+): Int {
+    if (activeQueueItemId >= 0) {
+        val byId = queue.indexOfFirst { it.id == activeQueueItemId }
+        if (byId >= 0) return byId
+    }
+    val title = playingTitle?.trim()?.lowercase()
+    if (title.isNullOrEmpty()) return -1
+    return queue.indexOfFirst { it.title.trim().lowercase() == title }
 }
 

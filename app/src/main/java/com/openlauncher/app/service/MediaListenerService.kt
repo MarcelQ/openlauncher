@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
+import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.SystemClock
@@ -24,6 +25,9 @@ class MediaListenerService : NotificationListenerService() {
         override fun onPlaybackStateChanged(state: PlaybackState?) = refreshNowPlaying()
         override fun onMetadataChanged(metadata: MediaMetadata?)   = refreshNowPlaying()
         override fun onSessionDestroyed()                          = refreshNowPlaying()
+        override fun onQueueTitleChanged(title: CharSequence?) = refreshNowPlaying()
+        override fun onQueueChanged(queue: List<MediaSession.QueueItem?>?) =
+            refreshNowPlaying()
     }
 
     override fun onListenerConnected() {
@@ -61,35 +65,57 @@ class MediaListenerService : NotificationListenerService() {
     // ── Auto-wake (steering-wheel PLAY key without the steering wheel) ───────────
     // refreshNowPlaying() runs on EVERY notification posted/removed system-wide, so
     // the wake attempt must stay heavily throttled: cooldown + a hard attempt cap
-    // (re-armed whenever a session comes back). Sends a media PLAY key exactly like
-    // a play button would — no activity launch, no focus steal.
+    // (re-armed whenever the target's own session comes back). Sends a media PLAY
+    // key exactly like a play button would — no activity launch, no focus steal.
     private var wakeAttempts = 0
     private var lastWakeElapsedMs = 0L
 
-    private fun maybeAutoWake() {
+    /**
+     * [sessionPkgs] are the packages that currently hold a media session. The wake
+     * fires when the TARGET app holds none of them — not merely when the system has
+     * no sessions at all: on head units the stock radio/MCU app keeps a MediaSession
+     * alive nearly permanently, which used to suppress the wake forever.
+     */
+    private fun maybeAutoWake(sessionPkgs: List<String>) {
         val pkg = autoConnectPackage ?: return
+        if (sessionPkgs.any { it == pkg }) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastWakeElapsedMs < WAKE_COOLDOWN_MS) return
         if (wakeAttempts >= MAX_WAKE_ATTEMPTS) return
         wakeAttempts++
         lastWakeElapsedMs = now
-        Log.i(TAG, "auto-wake attempt $wakeAttempts/$MAX_WAKE_ATTEMPTS: media PLAY key -> $pkg")
+        Log.i(TAG, "auto-wake attempt $wakeAttempts/$MAX_WAKE_ATTEMPTS: no session for $pkg; " +
+                "live sessions: ${if (sessionPkgs.isEmpty()) "none" else sessionPkgs.joinToString()}")
         val whenMs = SystemClock.uptimeMillis()
         val down = KeyEvent(whenMs, whenMs, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY, 0)
         val up = KeyEvent(whenMs, whenMs, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY, 0)
-        // Preferred: targeted broadcast so only the chosen app's MediaButtonReceiver
-        // gets the key. If the receiver's permission gate rejects our send, fall
-        // back to the system media-key dispatcher (routes to the active session).
+        // 1) Targeted broadcast so only the chosen app's MediaButtonReceiver gets the
+        //    key. FLAG_INCLUDE_STOPPED_PACKAGES is essential on real head units: right
+        //    after boot (or a force-stop) the app is in the "stopped" state and the
+        //    framework drops broadcasts to it without this flag — sendBroadcast
+        //    never throws for that, the key is just silently discarded, which is why
+        //    an exception-only fallback never helped.
         try {
             for (ev in arrayOf(down, up)) {
                 val intent = Intent(Intent.ACTION_MEDIA_BUTTON).setPackage(pkg)
+                intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 intent.putExtra(Intent.EXTRA_KEY_EVENT, ev)
                 sendBroadcast(intent)
             }
-        } catch (_: Exception) {
-            val am = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return
-            am.dispatchMediaKeyEvent(down)
-            am.dispatchMediaKeyEvent(up)
+        } catch (e: Exception) {
+            Log.w(TAG, "targeted media-key broadcast failed: $e")
+        }
+        // 2) Always also route the key through the system dispatcher (no permission
+        //    needed). It reaches sessions and the system's media-button fallback
+        //    receiver, covering apps whose manifest receiver gates plain broadcasts.
+        try {
+            val am = getSystemService(AUDIO_SERVICE) as? AudioManager
+            if (am != null) {
+                am.dispatchMediaKeyEvent(down)
+                am.dispatchMediaKeyEvent(up)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "dispatchMediaKeyEvent failed: $e")
         }
     }
 
@@ -107,10 +133,14 @@ class MediaListenerService : NotificationListenerService() {
         if (active == null) {
             clearController()
             _nowPlaying.value = null
-            maybeAutoWake()
+            maybeAutoWake(sessionPkgs = emptyList())
             return
         }
-        wakeAttempts = 0 // a live session exists again — re-arm the waker
+        // Re-arm the waker only when the TARGET app itself is back, not for any
+        // unrelated session (the head unit's stock radio always holds one).
+        val sessionPkgs = sessions.mapNotNull { it.packageName }
+        if (autoConnectPackage == null || sessionPkgs.any { it == autoConnectPackage })
+            wakeAttempts = 0
 
         // getActiveSessions returns NEW MediaController instances on every call —
         // compare session tokens, not references, or we churn callbacks and
@@ -125,6 +155,10 @@ class MediaListenerService : NotificationListenerService() {
         }
 
         updateFromController(activeController)
+
+        // The target may still be missing even though OTHER apps hold sessions
+        // (e.g. the stock radio app) — maybeAutoWake() filters on the package list.
+        maybeAutoWake(sessionPkgs)
     }
 
     private fun updateFromController(controller: MediaController?) {
@@ -150,25 +184,47 @@ class MediaListenerService : NotificationListenerService() {
             ?: meta?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
             ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
         val isPlaying = controller.playbackState?.state == PlaybackState.STATE_PLAYING
+        val prev = _nowPlaying.value
+
+        // Offline playlist support: MediaController.getQueue() is served by the OS
+        // from the source app's session — no internet involved. Whether an app
+        // fills it is up to that app (Spotify does for the track it is playing).
+        val queue = try {
+            controller.queue.orEmpty().mapNotNull { item ->
+                val d = item?.description ?: return@mapNotNull null
+                com.openlauncher.app.model.NowPlayingQueueItem(
+                    id       = item.queueId,
+                    title    = d.title?.toString() ?: "?",
+                    subtitle = (d.subtitle ?: d.description)?.toString() ?: ""
+                )
+            }
+        } catch (_: Exception) { emptyList() }
+        @Suppress("DEPRECATION")
+        val activeQueueItemId = controller.playbackState?.activeQueueItemId ?: -1L
+        if (queue.size != (prev?.queue?.size ?: -1))
+            Log.i(TAG, "queue from ${controller.packageName}: ${queue.size} items, " +
+                    "activeId=$activeQueueItemId")
 
         // Skip redundant emissions: metadata bitmaps parcel into fresh instances on
         // every read, so a plain data-class compare would never match and every
         // notification would force a recomposition + art redraw.
-        val prev = _nowPlaying.value
         if (prev != null &&
             prev.controller?.sessionToken == controller.sessionToken &&
             prev.title == title && prev.artist == artist &&
             prev.isPlaying == isPlaying && prev.artUri == artUri &&
+            prev.queue == queue && prev.activeQueueItemId == activeQueueItemId &&
             (prev.albumArt != null) == (art != null)
         ) return
 
         _nowPlaying.value = NowPlayingState(
-            title      = title,
-            artist     = artist,
-            albumArt   = art,
-            artUri     = artUri,
-            isPlaying  = isPlaying,
-            controller = controller
+            title            = title,
+            artist           = artist,
+            albumArt         = art,
+            artUri           = artUri,
+            isPlaying        = isPlaying,
+            controller       = controller,
+            queue            = queue,
+            activeQueueItemId = activeQueueItemId
         )
     }
 
