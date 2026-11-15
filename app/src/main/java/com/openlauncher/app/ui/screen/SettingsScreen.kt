@@ -1,8 +1,12 @@
 package com.openlauncher.app.ui.screen
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -10,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -22,12 +27,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlauncher.app.BuildConfig
 import com.openlauncher.app.data.ApkDownloader
+import com.openlauncher.app.data.DeviceInfoCollector
 import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
@@ -44,6 +51,8 @@ import com.openlauncher.app.tpms.PressureUnit
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.util.SunriseSunset
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 import com.openlauncher.app.ui.components.ColorPickerDialog
@@ -71,6 +80,11 @@ fun SettingsScreen(
     var showBgPicker          by remember { mutableStateOf(false) }
     var showGradientEndPicker by remember { mutableStateOf(false) }
     var showFontColorPicker   by remember { mutableStateOf(false) }
+
+    // Device diagnostics (developer feature): latest snapshot + in-flight flag
+    var deviceReport     by remember { mutableStateOf<String?>(null) }
+    var collectingReport by remember { mutableStateOf(false) }
+    val diagScope = rememberCoroutineScope()
 
     // OpenDocument (not GetContent): only SAF document URIs carry a persistable
     // grant, so this is what actually keeps the wallpaper readable after reboot
@@ -1175,6 +1189,43 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
         }
 
+        // ── Diagnostics (developer feature) ──────────────────────────────────
+        if (category == 10) SettingsSection("Device Diagnostics") {
+            SettingsButton(
+                label = "Collect Device Report",
+                sublabel = if (collectingReport) "Collecting — reading system services…" else
+                    "One snapshot of build, screen, radio/MCU, sensors, USB and installed apps — " +
+                    "copy or share it when filing a bug report or feature request",
+                icon = Icons.Default.BugReport,
+                accent = accent,
+                onClick = {
+                    if (!collectingReport) diagScope.launch {
+                        collectingReport = true
+                        // File stats, package list and Settings-provider queries — off the main thread
+                        deviceReport = withContext(Dispatchers.IO) { DeviceInfoCollector.collect(context) }
+                        collectingReport = false
+                    }
+                }
+            )
+            SettingsRow(
+                label = "What the report contains",
+                sublabel = "Android & SoC build info · screen size/dpi/diagonal · RAM & storage · sensor list · " +
+                    "input devices (steering-wheel controllers) · audio config · szchoiceway/MCU radio backend · " +
+                    "Settings.Global keys · USB devices · battery · launcher permission state · installed packages. " +
+                    "No serials or accounts, but still review it before sharing.",
+                icon = Icons.Default.Info
+            ) {}
+            SettingsRow(
+                label = "Last report",
+                sublabel = when {
+                    collectingReport   -> "being collected…"
+                    deviceReport != null -> "${deviceReport!!.lines().size} lines — tap Collect to take a fresh one"
+                    else               -> "none collected yet"
+                },
+                icon = Icons.Default.Article
+            ) {}
+        }
+
         Spacer(Modifier.height(32.dp))
 
         Text(
@@ -1257,6 +1308,62 @@ fun SettingsScreen(
             initialColor    = Color(settings.fontColor),
             onColorSelected = { c -> onUpdate { copy(fontColor = c.toArgb()) } },
             onDismiss       = { showFontColorPicker = false }
+        )
+    }
+
+    if (deviceReport != null) {
+        val report = deviceReport!!
+        AlertDialog(
+            onDismissRequest = { deviceReport = null },
+            title   = { Text("DEVICE REPORT", fontSize = 12.sp, letterSpacing = 2.sp) },
+            text    = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text      = "Review before sharing — lists installed apps and system settings.",
+                        style     = MaterialTheme.typography.labelSmall,
+                        color     = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize  = 10.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    // Selectable so the text can also be highlighted by hand on the unit
+                    SelectionContainer {
+                        Text(
+                            text       = report,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize   = 9.sp,
+                            color      = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("openlauncher device report", report))
+                    Toast.makeText(context, "Device report copied", Toast.LENGTH_SHORT).show()
+                }) { Text("Copy", fontSize = 12.sp) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        val share = Intent(Intent.ACTION_SEND)
+                            .setType("text/plain")
+                            .putExtra(Intent.EXTRA_TEXT, report)
+                        runCatching {
+                            context.startActivity(
+                                Intent.createChooser(share, "Share device report")
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    }) { Text("Share", fontSize = 12.sp) }
+                    TextButton(onClick = { deviceReport = null }) { Text("Close", fontSize = 12.sp) }
+                }
+            }
         )
     }
 }
@@ -1432,7 +1539,8 @@ private fun SettingsCategoryRail(
         "Weather"              to Icons.Default.Cloud,
         "Tyre Pressure (TPMS)" to Icons.Default.Speed,
         "Updates"              to Icons.Default.SystemUpdate,
-        "Maintenance"          to Icons.Default.RestartAlt
+        "Maintenance"          to Icons.Default.RestartAlt,
+        "Diagnostics"          to Icons.Default.BugReport
     )
     val isDayMode = LocalDayMode.current
     Column(
@@ -1440,9 +1548,10 @@ private fun SettingsCategoryRail(
             .width(64.dp)
             .background(if (isDayMode) Color(0xFFEDEDED) else Color(0xFF0B0B0B))
             .verticalScroll(rememberScrollState())
-            // Sized so all ten icons fit without scrolling on the smallest common
-            // head-unit height in landscape (1440px @ density 3.5 ≈ 411dp):
-            // 10*36dp + 9*2dp + 2*8dp = 394dp.
+            // With eleven icons (11*36dp + 10*2dp + 2*8dp = 416dp) the rail just
+            // barely exceeds the smallest common head-unit height in landscape
+            // (1440px @ density 3.5 ≈ 411dp), so the last icon rests against the
+            // rail's verticalScroll instead of being cut off.
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)

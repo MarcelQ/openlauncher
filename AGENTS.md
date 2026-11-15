@@ -20,7 +20,11 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   pure DTOs, no network);
   and for the Now Playing artwork-contrast decision — average luminance vs the dim
   overlay threshold (`app\src\test\java\com\openlauncher\app\ui\widget\NowPlayingContrastTest.kt`;
-  internal pure helpers in `NowPlayingWidget.kt`).
+  internal pure helpers in `NowPlayingWidget.kt`);
+  and for the device-diagnostics report's pure helpers — head-unit vendor-package
+  classification and sensor-type naming (`app\src\test\java\com\openlauncher\app\data\DeviceInfoReportTest.kt`;
+  pure helpers split out of `data\DeviceInfoReport.kt`; the Context-driven collector in
+  `data\DeviceInfoCollector.kt` is device-verified only).
   JVM only, no device. No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).
