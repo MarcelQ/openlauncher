@@ -6,6 +6,13 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
+    <!-- Bluetooth STATUS icon on the sidebar (read-only isEnabled). Legacy
+         BLUETOOTH covers API <= 30 (install-time); API 31+ needs the runtime
+         BLUETOOTH_CONNECT grant — without it the icon simply stays hidden.
+         No toggling/pairing permissions are requested. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
     <!-- Broadcast permission for MCU head unit event service -->
     <uses-permission android:name="com.szchoiceway.permission.broadcast" />
 

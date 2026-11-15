@@ -49,6 +49,11 @@ private val SLOT_SIZE   = 52.dp
 fun Sidebar(
     currentDest: NavDestination,
     settings: AppSettings,
+    // Connectivity status icons: above the Settings button on the vertical rail,
+    // on the end opposite the nav cluster on the bottom bar
+    isWifi: Boolean = false,
+    isData: Boolean = false,
+    isBluetooth: Boolean? = null,
     installedIconFor: (String) -> Drawable?,
     onNavigate: (NavDestination) -> Unit,
     onShortcutClick: (Int) -> Unit,
@@ -94,10 +99,21 @@ fun Sidebar(
         }
     }
 
+    // The vertical rail renders slots bottom-up (slot 1 closest to the app-list
+    // button at the bottom) so the most-used slot sits nearest the thumb while
+    // driving. Indices stay DATA indices — only the presentation is inverted,
+    // so drag maths accumulates screen deltas in data direction (sign-flipped
+    // in ShortcutSlot) and neighbour shifts flip visually below.
+    val inverted = !isHorizontal
+
     val shortcutsContent: @Composable () -> Unit = {
-        settings.shortcuts.forEachIndexed { index, shortcut ->
-            val isDragging  = (index == draggingIndex)
-            val translation = if (isDragging) dragOffsetPx else slotTranslation(index)
+        val order = if (inverted) settings.shortcuts.indices.reversed().toList()
+                    else          settings.shortcuts.indices.toList()
+        order.forEach { index ->
+            val shortcut      = settings.shortcuts[index]
+            val isDragging    = (index == draggingIndex)
+            val sign          = if (inverted) -1f else 1f
+            val translation   = sign * (if (isDragging) dragOffsetPx else slotTranslation(index))
 
             ShortcutSlot(
                 shortcut        = shortcut,
@@ -107,6 +123,7 @@ fun Sidebar(
                 isDragging      = isDragging,
                 dragTranslation = translation,
                 isHorizontal    = isHorizontal,
+                inverted        = inverted,
                 onClick         = { onShortcutClick(index) },
                 onLongPress     = {
                     if (shortcut.packageName.isNotEmpty()) {
@@ -131,9 +148,11 @@ fun Sidebar(
         }
     }
 
-    // CarPlay / Android Auto: fixed dedicated slots at the head of the rail,
-    // shown only when assigned in Settings AND the per-button toggle is on.
-    // Not draggable/removable here on purpose — Settings owns them.
+    // CarPlay / Android Auto: fixed dedicated buttons, shown only when assigned
+    // in Settings AND the per-button toggle is on. On the vertical rail they sit
+    // in the thumb-end cluster between the lowest slot and the Apps button; on
+    // the bottom bar they precede the shortcut slots. Not draggable/removable
+    // here on purpose — Settings owns them.
     val vehicleSlots: @Composable () -> Unit = {
         if (settings.sidebarCarPlayButton && settings.carPlayPackage.isNotEmpty()) {
             DedicatedSlot(Icons.Default.PhoneAndroid, "CarPlay", isHorizontal, onCarPlayLaunch)
@@ -143,7 +162,7 @@ fun Sidebar(
         }
     }
 
-    val navButtons: @Composable () -> Unit = {
+    val appsButton: @Composable () -> Unit = {
         NavButton(
             icon         = Icons.Default.Apps,
             label        = "Apps",
@@ -153,6 +172,8 @@ fun Sidebar(
             isHorizontal = isHorizontal,
             onClick      = { onNavigate(NavDestination.APP_LIBRARY) }
         )
+    }
+    val settingsButton: @Composable () -> Unit = {
         NavButton(
             icon         = Icons.Default.Settings,
             label        = "Settings",
@@ -165,6 +186,8 @@ fun Sidebar(
             // was removed from the home header, so this is its entry point)
             onLongClick  = { onRearrangeRequested() }
         )
+    }
+    val homeButton: @Composable () -> Unit = {
         NavButton(
             icon         = Icons.Default.Home,
             label        = "Home",
@@ -174,6 +197,15 @@ fun Sidebar(
             isHorizontal = isHorizontal,
             onClick      = { onNavigate(NavDestination.HOME) }
         )
+    }
+
+    // Connectivity status icons, moved from the removed home-screen header.
+    // Bluetooth renders only when its state is readable (permission granted).
+    val statusIcons: @Composable () -> Unit = {
+        val statusTint = if (isDayMode) Color(0xFF444444) else Color(0xFF666666)
+        if (isWifi) Icon(Icons.Default.Wifi, "WiFi", tint = statusTint, modifier = Modifier.size(16.dp))
+        if (isBluetooth == true) Icon(Icons.Default.Bluetooth, "Bluetooth", tint = statusTint, modifier = Modifier.size(16.dp))
+        if (isData) Icon(Icons.Default.SignalCellularAlt, "Data", tint = statusTint, modifier = Modifier.size(16.dp))
     }
 
     if (isHorizontal) {
@@ -215,6 +247,18 @@ fun Sidebar(
                     NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true, onClick = { onNavigate(NavDestination.HOME) })
                 }
             }
+
+            // Connectivity status icons on the end opposite the nav cluster
+            Row(
+                modifier            = Modifier
+                    .align(if (settings.bottomBarShortcutsRight) Alignment.CenterStart else Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .padding(horizontal = 10.dp),
+                verticalAlignment   = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                statusIcons()
+            }
         }
     } else {
         Column(
@@ -224,20 +268,41 @@ fun Sidebar(
                 .background(sidebarBg),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Fixed head (top of screen): connectivity status icons
             Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(top = 6.dp, bottom = 2.dp),
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                vehicleSlots()
-                shortcutsContent()
+                statusIcons()
             }
 
+            // Slots scroll in the space between the fixed clusters, pinned to
+            // the bottom so slot 1 rests just above the vehicle buttons
+            // (slot 1..N read bottom-up — see `inverted`)
+            Box(
+                modifier         = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Column(
+                    modifier            = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 6.dp, bottom = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    shortcutsContent()
+                }
+            }
+
+            // Thumb-end cluster, bottom-up: Home outermost (thumb), then
+            // Settings, Apps, CarPlay, Android Auto, then the slots
             HorizontalDivider(color = dividerColor)
-            navButtons()
+            vehicleSlots()
+            appsButton()
+            settingsButton()
+            homeButton()
             Spacer(Modifier.height(4.dp))
         }
     }
@@ -286,6 +351,7 @@ private fun ShortcutSlot(
     isDragging: Boolean,
     dragTranslation: Float,
     isHorizontal: Boolean,
+    inverted: Boolean,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
     onDragStart: () -> Unit,
@@ -314,7 +380,7 @@ private fun ShortcutSlot(
                 onClick     = { currentOnClick() },
                 onLongClick = { }
             )
-            .pointerInput(isHorizontal) {
+            .pointerInput(isHorizontal, inverted) {
                 var longPressTriggered = false
                 var hasSignificantDrag = false
                 var totalDrag          = 0f
@@ -326,7 +392,11 @@ private fun ShortcutSlot(
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        val delta = if (isHorizontal) dragAmount.x else dragAmount.y
+                        // Inverted (vertical) rail: screen-down is DATA-index-up,
+                        // so accumulate the logic delta sign-flipped
+                        val delta = if (isHorizontal) dragAmount.x
+                                    else if (inverted) -dragAmount.y
+                                    else dragAmount.y
                         totalDrag += delta
                         if (!hasSignificantDrag && kotlin.math.abs(totalDrag) > viewConfiguration.touchSlop) {
                             hasSignificantDrag = true

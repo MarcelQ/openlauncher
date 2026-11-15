@@ -132,8 +132,6 @@ fun HomeScreen(
     nowPlaying: NowPlayingState?,
     location: LocationData?,
     bearing: Float,
-    isWifi: Boolean,
-    isData: Boolean,
     isDayMode: Boolean = false,
     editMode: Boolean = false,
     onToggleEditMode: () -> Unit = {},
@@ -186,7 +184,6 @@ fun HomeScreen(
         hasWallpaper -> Color(0x22FFFFFF)
         else         -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
     }
-    val statusIconColor   = if (isDayMode) Color(0xFF444444) else Color(0xFF666666)
 
     var contextMenuId by remember { mutableStateOf<String?>(null) }
 
@@ -253,20 +250,8 @@ fun HomeScreen(
                 )
             }
 
-            // Status icons now float over the grid top-right; the old 48 dp
-            // header bar that used to hold them was removed.
-            Row(
-                modifier            = Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment     = Alignment.CenterVertically
-            ) {
-                AnimatedVisibility(visible = isWifi, enter = fadeIn(), exit = fadeOut()) {
-                    Icon(Icons.Default.Wifi, "WiFi", tint = statusIconColor, modifier = Modifier.size(16.dp))
-                }
-                AnimatedVisibility(visible = isData, enter = fadeIn(), exit = fadeOut()) {
-                    Icon(Icons.Default.SignalCellularAlt, "Data", tint = statusIconColor, modifier = Modifier.size(16.dp))
-                }
-            }
+            // Status icons moved to the sidebar (above the Settings button);
+            // the old 48 dp header bar that used to hold them stays removed.
 
             // Page dots + edit-mode page/grid controls, floating bottom-center
             if (settings.pages.size > 1 || editMode) {

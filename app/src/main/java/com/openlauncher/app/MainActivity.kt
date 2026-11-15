@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
             val bearing     by vm.compassBearing.collectAsStateWithLifecycle()
             val isWifi      by vm.isWifi.collectAsStateWithLifecycle()
             val isData      by vm.isData.collectAsStateWithLifecycle()
+            val isBluetooth by vm.isBluetooth.collectAsStateWithLifecycle()
             val editMode    by vm.rearrangeMode.collectAsStateWithLifecycle()
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
             val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
@@ -162,6 +163,9 @@ class MainActivity : ComponentActivity() {
                                 Sidebar(
                                     currentDest   = nav,
                                     settings      = settings,
+                                    isWifi        = isWifi,
+                                    isData        = isData,
+                                    isBluetooth   = isBluetooth,
                                     isHorizontal  = isBottomBar,
                                     installedIconFor = { pkg ->
                                         apps.find { it.packageName == pkg }?.icon
@@ -221,8 +225,6 @@ class MainActivity : ComponentActivity() {
                                         nowPlaying          = nowPlaying,
                                         location            = location,
                                         bearing             = bearing,
-                                        isWifi              = isWifi,
-                                        isData              = isData,
                                         isDayMode           = isDayMode,
                                         editMode            = editMode,
                                         onToggleEditMode    = { vm.toggleRearrangeMode() },
@@ -297,7 +299,15 @@ class MainActivity : ComponentActivity() {
                                         onAssignCarPlay     = { vm.startCarPlayPicker() },
                                         onAssignAndroidAuto = { vm.startAndroidAutoPicker() },
                                         onClearCarPlay      = { vm.clearCarPlayApp() },
-                                        onClearAndroidAuto  = { vm.clearAndroidAutoApp() }
+                                        onClearAndroidAuto  = { vm.clearAndroidAutoApp() },
+                                        // Category rail's bottom Home button (the rail
+                                        // replaces the launcher sidebar on this screen)
+                                        onGoHome            = {
+                                            vm.cancelShortcutPicker()
+                                            vm.cancelCarPlayPicker()
+                                            vm.exitRearrangeMode()
+                                            vm.navigate(NavDestination.HOME)
+                                        }
                                     )
                                 }
                             }
@@ -317,14 +327,22 @@ class MainActivity : ComponentActivity() {
                                         color    = layoutDivColor
                                     )
                                 }
+                                // On the Settings screen (vertical layouts) the launcher
+                                // sidebar is hidden: the category rail inside
+                                // SettingsScreen replaces it on the same side.
+                                val railReplacesSidebar = nav == NavDestination.SETTINGS
                                 if (settings.sidebarPosition == SidebarPosition.LEFT) {
-                                    sidebarContent()
-                                    vDivider()
+                                    if (!railReplacesSidebar) {
+                                        sidebarContent()
+                                        vDivider()
+                                    }
                                 }
                                 mainPane(Modifier.weight(1f).fillMaxHeight())
                                 if (settings.sidebarPosition == SidebarPosition.RIGHT) {
-                                    vDivider()
-                                    sidebarContent()
+                                    if (!railReplacesSidebar) {
+                                        vDivider()
+                                        sidebarContent()
+                                    }
                                 }
                             }
                         }

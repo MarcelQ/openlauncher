@@ -761,8 +761,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     // ── Connectivity ──────────────────────────────────────────────────────────
     private val _isWifi = MutableStateFlow(false)
     private val _isData = MutableStateFlow(false)
+    // null = unreadable (e.g. BLUETOOTH_CONNECT not granted on API 31+) — the
+    // sidebar then hides the icon rather than guessing
+    private val _isBluetooth = MutableStateFlow<Boolean?>(null)
     val isWifi: StateFlow<Boolean> = _isWifi
     val isData: StateFlow<Boolean> = _isData
+    val isBluetooth: StateFlow<Boolean?> = _isBluetooth
 
     fun refreshMedia() {
         MediaListenerService.requestRefresh()
@@ -978,6 +982,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             _isWifi.value = connected && type == ConnectivityManager.TYPE_WIFI
             _isData.value = connected && type == ConnectivityManager.TYPE_MOBILE
         }
+        // Bluetooth adapter state for the sidebar status icon. Gated by legacy
+        // BLUETOOTH (maxSdk 30) / BLUETOOTH_CONNECT (31+ runtime): a missing
+        // grant throws SecurityException -> unknown (null), never a crash.
+        _isBluetooth.value = runCatching {
+            val bt = getApplication<Application>()
+                .getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+            bt?.adapter?.isEnabled
+        }.getOrNull()
     }
 
     override fun onCleared() {

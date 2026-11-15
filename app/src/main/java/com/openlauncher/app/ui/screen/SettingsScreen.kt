@@ -78,6 +78,9 @@ fun SettingsScreen(
     onAssignAndroidAuto: () -> Unit = {},
     onClearCarPlay: () -> Unit = {},
     onClearAndroidAuto: () -> Unit = {},
+    // Bottom Home button of the category rail: returns to the home screen
+    // (the rail replaces the launcher sidebar while Settings is open)
+    onGoHome: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -110,10 +113,11 @@ fun SettingsScreen(
     val isDayMode = LocalDayMode.current
     val screenBg  = MaterialTheme.colorScheme.background
 
-    // Category navigation rail. Its side mirrors the driver-side setting: with the
-    // app sidebar on the LEFT the rail docks on the RIGHT, and the other way round,
-    // so the settings pane always opens on the same side as the rest of the UI.
-    val railOnLeft = settings.sidebarPosition != SidebarPosition.LEFT
+    // Category navigation rail. On vertical layouts MainActivity hides the launcher
+    // sidebar while Settings is open, and the rail replaces it on that same side
+    // (LEFT sidebar → rail LEFT). With the bottom bar the sidebar stays and the
+    // rail docks left.
+    val railOnLeft = settings.sidebarPosition == SidebarPosition.LEFT
     var category by rememberSaveable { mutableIntStateOf(0) }
 
     Box(
@@ -127,6 +131,10 @@ fun SettingsScreen(
                 selected = category,
                 onSelect = { category = it },
                 accent   = accent,
+                onHome   = onGoHome,
+                // Only the sidebar-replacing rails carry the way back home;
+                // with the bottom bar, Home already lives there
+                showHome = settings.sidebarPosition != SidebarPosition.BOTTOM,
                 modifier = Modifier.fillMaxHeight()
             )
         }
@@ -1341,6 +1349,8 @@ fun SettingsScreen(
                 selected = category,
                 onSelect = { category = it },
                 accent   = accent,
+                onHome   = onGoHome,
+                showHome = settings.sidebarPosition != SidebarPosition.BOTTOM,
                 modifier = Modifier.fillMaxHeight()
             )
         }
@@ -1624,6 +1634,8 @@ private fun SettingsCategoryRail(
     selected: Int,
     onSelect: (Int) -> Unit,
     accent: Color,
+    onHome: () -> Unit,
+    showHome: Boolean,
     modifier: Modifier = Modifier
 ) {
     val categories = listOf(
@@ -1643,31 +1655,63 @@ private fun SettingsCategoryRail(
     Column(
         modifier = modifier
             .width(64.dp)
-            .background(if (isDayMode) Color(0xFFEDEDED) else Color(0xFF0B0B0B))
-            .verticalScroll(rememberScrollState())
-            // With eleven icons (11*36dp + 10*2dp + 2*8dp = 416dp) the rail just
-            // barely exceeds the smallest common head-unit height in landscape
-            // (1440px @ density 3.5 ≈ 411dp), so the last icon rests against the
-            // rail's verticalScroll instead of being cut off.
-            .padding(vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+            .background(if (isDayMode) Color(0xFFEDEDED) else Color(0xFF0B0B0B)),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        categories.forEachIndexed { index, (name, icon) ->
-            val isSelected = index == selected
+        // Categories scroll in the weighted body: eleven icons (11*36dp + 10*2dp
+        // + 16dp padding = 416dp) exceed the smallest head units' landscape dp
+        // height, so they scroll rather than being cut off.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(top = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            categories.forEachIndexed { index, (name, icon) ->
+                val isSelected = index == selected
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (isSelected) accent.copy(alpha = 0.16f) else Color.Transparent)
+                        .clickable { onSelect(index) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        icon,
+                        contentDescription = name,
+                        tint   = if (isSelected) accent else if (isDayMode) Color(0xFF555555) else Color(0xFF666666),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+        // Home pinned at the bottom: the rail replaces the launcher sidebar on
+        // this screen, so it must carry the way back to the home page. With the
+        // bottom bar the sidebar (and its Home) stays visible, so the rail
+        // leaves it out.
+        if (showHome) {
+            HorizontalDivider(
+                color    = if (isDayMode) Color(0xFFD8D8D8) else Color(0xFF1E1E1E),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            )
             Box(
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (isSelected) accent.copy(alpha = 0.16f) else Color.Transparent)
-                    .clickable { onSelect(index) },
+                    .padding(bottom = 10.dp)
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isDayMode) Color(0xFF000000).copy(alpha = 0.07f) else Color(0xFF1A1A1A))
+                    .clickable(onClick = onHome),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    icon,
-                    contentDescription = name,
-                    tint   = if (isSelected) accent else if (isDayMode) Color(0xFF555555) else Color(0xFF666666),
-                    modifier = Modifier.size(20.dp)
+                    Icons.Default.Home,
+                    contentDescription = "Home",
+                    tint     = if (isDayMode) Color(0xFF333333) else Color(0xFFBBBBBB),
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
