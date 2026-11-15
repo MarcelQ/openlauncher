@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -89,14 +90,30 @@ fun SettingsScreen(
     val isDayMode = LocalDayMode.current
     val screenBg  = MaterialTheme.colorScheme.background
 
+    // Category navigation rail. Its side mirrors the driver-side setting: with the
+    // app sidebar on the LEFT the rail docks on the RIGHT, and the other way round,
+    // so the settings pane always opens on the same side as the rest of the UI.
+    val railOnLeft = settings.sidebarPosition != SidebarPosition.LEFT
+    var category by rememberSaveable { mutableIntStateOf(0) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(screenBg)
     ) {
+    Row(modifier = Modifier.fillMaxSize()) {
+        if (railOnLeft) {
+            SettingsCategoryRail(
+                selected = category,
+                onSelect = { category = it },
+                accent   = accent,
+                modifier = Modifier.fillMaxHeight()
+            )
+        }
     Column(
         modifier = Modifier
-            .fillMaxWidth()
+            .weight(1f)
+            .fillMaxHeight()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -113,7 +130,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(4.dp))
 
         // ── Permissions ──────────────────────────────────────────────────────
-        SettingsSection("Permissions") {
+        if (category == 0) SettingsSection("Permissions") {
             val isMediaConnected by com.openlauncher.app.service.MediaListenerService.isConnected.collectAsState()
 
             // Bumped on ON_RESUME so statuses refresh when the user returns from
@@ -252,7 +269,7 @@ fun SettingsScreen(
         }
 
         // ── Vehicle Name ─────────────────────────────────────────────────────
-        SettingsSection("Vehicle") {
+        if (category == 1) SettingsSection("Vehicle") {
             var nameInput by remember(settings.vehicleName) { mutableStateOf(settings.vehicleName) }
             SettingsRow(
                 label    = "Vehicle Name",
@@ -356,7 +373,7 @@ fun SettingsScreen(
         }
 
         // ── Sidebar Shortcuts ─────────────────────────────────────────────────
-        SettingsSection("Sidebar") {
+        if (category == 2) SettingsSection("Sidebar") {
             settings.shortcuts.forEachIndexed { index, shortcut ->
                 if (index > 0) SettingsDivider()
                 SettingsRow(
@@ -395,7 +412,7 @@ fun SettingsScreen(
         }
 
         // ── Appearance ───────────────────────────────────────────────────────
-        SettingsSection("Appearance") {
+        if (category == 3) SettingsSection("Appearance") {
             // Display Mode
             SettingsRow(
                 label    = "Display Mode",
@@ -610,7 +627,7 @@ fun SettingsScreen(
         }
 
         // ── Typography ───────────────────────────────────────────────────────
-        SettingsSection("Typography") {
+        if (category == 4) SettingsSection("Typography") {
             SettingsRow(label = "Font", sublabel = fontDisplayName(settings.appFont), icon = Icons.Default.FontDownload) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     com.openlauncher.app.data.AppFont.entries.forEach { font ->
@@ -675,7 +692,7 @@ fun SettingsScreen(
         }
 
         // ── GPS & Calibration ───────────────────────────────────────────────
-        SettingsSection("GPS & Calibration") {
+        if (category == 5) SettingsSection("GPS & Calibration") {
             var calibrationStatus by remember { mutableStateOf<String?>(null) }
             val coroutineScope = rememberCoroutineScope()
             var isCalibratingCompass by remember { mutableStateOf(false) }
@@ -783,7 +800,7 @@ fun SettingsScreen(
         // ── Weather ──────────────────────────────────────────────────────────
         // Provider choice + what the card shows. Both backends are key-free and
         // cached offline, so the card still reads after the weather feed drops.
-        SettingsSection("Weather") {
+        if (category == 6) SettingsSection("Weather") {
             SettingsRow(
                 label    = "Data Source",
                 sublabel = when (settings.weatherProvider) {
@@ -861,7 +878,7 @@ fun SettingsScreen(
         // ── Tyre pressure (USB TPMS receiver) ────────────────────────────────
         // No card on/off switch here: card visibility is owned by the widget library so the
         // grid layout is committed through the same path as every other card.
-        SettingsSection("Tyre Pressure (TPMS)") {
+        if (category == 7) SettingsSection("Tyre Pressure (TPMS)") {
             val pressureUnit = settings.tpmsPressureUnit
 
             SettingsRow(
@@ -976,7 +993,7 @@ fun SettingsScreen(
         }
 
         // ── Updates ──────────────────────────────────────────────────────────
-        SettingsSection("Updates") {
+        if (category == 8) SettingsSection("Updates") {
             val channel = UpdateChannel.fromKey(settings.updateChannel)
 
             SettingsRow(
@@ -1127,7 +1144,7 @@ fun SettingsScreen(
         }
 
         // ── Maintenance ──────────────────────────────────────────────────────
-        SettingsSection("Maintenance") {
+        if (category == 9) SettingsSection("Maintenance") {
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick  = { showResetDialog = true },
@@ -1153,7 +1170,17 @@ fun SettingsScreen(
                 .align(Alignment.CenterHorizontally)
                 .padding(bottom = 16.dp)
         )
-    }
+    } // end Column (settings pane)
+
+        if (!railOnLeft) {
+            SettingsCategoryRail(
+                selected = category,
+                onSelect = { category = it },
+                accent   = accent,
+                modifier = Modifier.fillMaxHeight()
+            )
+        }
+    } // end Row
     } // end Box
 
     // ── Dialogs ──────────────────────────────────────────────────────────────
@@ -1365,4 +1392,62 @@ private fun tpmsThresholdSteps(): Int {
     val detents = ((PressureUnit.MAX_THRESHOLD_KPA - PressureUnit.MIN_THRESHOLD_KPA) /
         PressureUnit.THRESHOLD_STEP_KPA).roundToInt()
     return (detents - 1).coerceAtLeast(0)
+}
+
+// ── Settings category navigation rail ────────────────────────────────────────
+// One icon per SettingsSection in SettingsScreen, in the same order: selecting an
+// icon swaps the scroll pane to that category (see the `if (category == N)` gates).
+// The icon's contentDescription carries the category name for accessibility and
+// for uiautomator-based UI checks.
+@Composable
+private fun SettingsCategoryRail(
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    val categories = listOf(
+        "Permissions"          to Icons.Default.Shield,
+        "Vehicle"              to Icons.Default.DirectionsCar,
+        "Sidebar"              to Icons.Default.Dashboard,
+        "Appearance"           to Icons.Default.Palette,
+        "Typography"           to Icons.Default.TextFields,
+        "GPS & Calibration"    to Icons.Default.MyLocation,
+        "Weather"              to Icons.Default.Cloud,
+        "Tyre Pressure (TPMS)" to Icons.Default.Speed,
+        "Updates"              to Icons.Default.SystemUpdate,
+        "Maintenance"          to Icons.Default.RestartAlt
+    )
+    val isDayMode = LocalDayMode.current
+    Column(
+        modifier = modifier
+            .width(64.dp)
+            .background(if (isDayMode) Color(0xFFEDEDED) else Color(0xFF0B0B0B))
+            .verticalScroll(rememberScrollState())
+            // Sized so all ten icons fit without scrolling on the smallest common
+            // head-unit height in landscape (1440px @ density 3.5 ≈ 411dp):
+            // 10*36dp + 9*2dp + 2*8dp = 394dp.
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        categories.forEachIndexed { index, (name, icon) ->
+            val isSelected = index == selected
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isSelected) accent.copy(alpha = 0.16f) else Color.Transparent)
+                    .clickable { onSelect(index) },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = name,
+                    tint   = if (isSelected) accent else if (isDayMode) Color(0xFF555555) else Color(0xFF666666),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
 }
