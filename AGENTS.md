@@ -17,7 +17,10 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   the engine itself lives in `app\src\main\java\com\openlauncher\app\data\GridLayout.kt`, framework-free);
   and for the two weather backends' response → `WeatherState` mapping plus the met.no
   symbol-code → WMO translation (`app\src\test\java\com\openlauncher\app\data\WeatherForecastParseTest.kt`;
-  pure DTOs, no network).
+  pure DTOs, no network);
+  and for the Now Playing artwork-contrast decision — average luminance vs the dim
+  overlay threshold (`app\src\test\java\com\openlauncher\app\ui\widget\NowPlayingContrastTest.kt`;
+  internal pure helpers in `NowPlayingWidget.kt`).
   JVM only, no device. No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).
