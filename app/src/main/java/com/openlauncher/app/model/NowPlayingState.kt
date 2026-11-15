@@ -30,8 +30,31 @@ data class NowPlayingState(
 data class NowPlayingQueueItem(
     val id: Long,
     val title: String,
-    val subtitle: String
-)
+    val subtitle: String,
+    // Per-track thumbnail exactly as the source app attached it to its own
+    // queue entry (MediaDescription icon). Best-effort: many apps attach
+    // none, then both stay null and the row shows a placeholder.
+    // artBitmap is deliberately excluded from equals()/hashCode() below —
+    // apps hand out a fresh Bitmap on every read, so including it would
+    // make every poll look like the queue changed.
+    val artBitmap: Bitmap? = null,
+    val artUri: String? = null
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is NowPlayingQueueItem) return false
+        return id == other.id && title == other.title &&
+            subtitle == other.subtitle && artUri == other.artUri
+    }
+
+    override fun hashCode(): Int {
+        var result = id.hashCode()
+        result = 31 * result + title.hashCode()
+        result = 31 * result + subtitle.hashCode()
+        result = 31 * result + (artUri?.hashCode() ?: 0)
+        return result
+    }
+}
 
 /**
  * One extra playback action the source app advertises (e.g. a shuffle

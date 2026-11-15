@@ -2,6 +2,7 @@ package com.openlauncher.app.ui.widget
 
 import com.openlauncher.app.model.NowPlayingQueueItem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 /**
@@ -90,9 +91,23 @@ class NowPlayingQueueTest {
         assertEquals(0, volumePercent(current = -2, max = 15))
     }
 
+    // ── queue item identity (artwork must not break state dedup) ──────────────
+
     @Test
-    fun `swipe maps to transport actions past the slop threshold`() {
-        // Swipe left (negative dx) past slop -> next (+1)
+    fun `queue items compare by stable identity not by artwork`() {
+        val a = NowPlayingQueueItem(1L, "Track", "Artist", artUri = "https://img/a.jpg")
+        val same = NowPlayingQueueItem(1L, "Track", "Artist", artUri = "https://img/a.jpg")
+        assertEquals(a, same)
+        // Different artwork URI is a visible change -> must compare unequal.
+        assertNotEquals(a, a.copy(artUri = "https://img/b.jpg"))
+        // Title/subtitle/id changes always count.
+        assertNotEquals(a, a.copy(title = "Other"))
+        assertNotEquals(a, a.copy(subtitle = "Other"))
+        assertNotEquals(a, a.copy(id = 2L))
+    }
+
+    @Test
+    fun `swipe maps to transport actions past the slop threshold`() {        // Swipe left (negative dx) past slop -> next (+1)
         assertEquals(1, swipeTransportAction(deltaPx = -120f, slopPx = 60f))
         // Swipe right -> previous (-1)
         assertEquals(-1, swipeTransportAction(deltaPx = 120f, slopPx = 60f))

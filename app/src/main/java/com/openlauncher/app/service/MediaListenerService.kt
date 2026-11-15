@@ -195,7 +195,14 @@ class MediaListenerService : NotificationListenerService() {
                 com.openlauncher.app.model.NowPlayingQueueItem(
                     id       = item.queueId,
                     title    = d.title?.toString() ?: "?",
-                    subtitle = (d.subtitle ?: d.description)?.toString() ?: ""
+                    subtitle = (d.subtitle ?: d.description)?.toString() ?: "",
+                    // Per-track thumbnail from the queue item's own metadata
+                    // (framework API 21+). Apps attach one at their own
+                    // discretion — VLC and USB players often do, Spotify's
+                    // session queue entries may only carry URIs. Null-safe:
+                    // an app that attaches nothing simply gets a placeholder.
+                    artBitmap = runCatching { d.iconBitmap }.getOrNull(),
+                    artUri    = runCatching { d.iconUri?.toString() }.getOrNull()
                 )
             }
         } catch (_: Exception) { emptyList() }

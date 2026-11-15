@@ -993,6 +993,50 @@ private fun VolumeControlRow(
 }
 
 /**
+ * Per-track thumbnail tile for queue rows. The bitmap is exactly what the
+ * source app attached to its own queue entry (MediaDescription icon, read
+ * offline by MediaListenerService); the URI — when that's all the app
+ * attaches — is loaded by Coil with a neutral tile behind it, so a failed
+ * or offline load degrades to the placeholder instead of a broken image.
+ * Apps that attach nothing get the placeholder too.
+ */
+@Composable
+private fun QueueArtThumb(
+    item: com.openlauncher.app.model.NowPlayingQueueItem,
+    iconColor: Color,
+    size: androidx.compose.ui.unit.Dp = 36.dp
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(4.dp))
+            .background(iconColor.copy(alpha = 0.12f)),
+        contentAlignment = Alignment.Center
+    ) {
+        val bmp = item.artBitmap
+        when {
+            bmp != null -> Image(
+                bitmap             = bmp.asImageBitmap(),
+                contentDescription = null,
+                contentScale       = ContentScale.Crop,
+                modifier           = Modifier.fillMaxSize()
+            )
+            !item.artUri.isNullOrEmpty() -> coil.compose.AsyncImage(
+                model              = item.artUri,
+                contentDescription = null,
+                contentScale       = ContentScale.Crop,
+                modifier           = Modifier.fillMaxSize()
+            )
+            else -> Icon(
+                Icons.Default.MusicNote, null,
+                tint     = iconColor.copy(alpha = 0.45f),
+                modifier = Modifier.size(size * 0.45f)
+            )
+        }
+    }
+}
+
+/**
  * Full-card queue list for large cards (≥4×4 grid cells): replaces the
  * player UI in place instead of opening a dialog. Data comes from the OS
  * media session — fully offline — and tapping a row jumps the source app to
@@ -1057,6 +1101,8 @@ private fun QueueInlineView(
                         fontFamily = FontFamily.Monospace
                     )
                     Spacer(Modifier.width(10.dp))
+                    QueueArtThumb(item = item, iconColor = iconColor, size = 40.dp)
+                    Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             item.title,
@@ -1114,7 +1160,7 @@ private fun NowPlayingQueueSheet(
             )
         },
         text = {
-            LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
+            LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
                 itemsIndexed(queue) { index, item ->
                     val active = index == currentIndex
                     Row(
@@ -1138,6 +1184,8 @@ private fun NowPlayingQueueSheet(
                             fontSize = 9.sp,
                             fontFamily = FontFamily.Monospace
                         )
+                        Spacer(Modifier.width(10.dp))
+                        QueueArtThumb(item = item, iconColor = subColor, size = 32.dp)
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
