@@ -37,6 +37,7 @@ import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DefaultShortcutIcon
+import com.openlauncher.app.data.GpsStrength
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.ui.theme.LocalDayMode
@@ -54,6 +55,13 @@ fun Sidebar(
     isWifi: Boolean = false,
     isData: Boolean = false,
     isBluetooth: Boolean? = null,
+    // GPS fix quality — its icon is always shown and encodes the strength
+    gpsStrength: GpsStrength = GpsStrength.OFF,
+    // Tapping a status icon opens Android's own connectivity panel/settings
+    onWifiStatusClick: () -> Unit = {},
+    onBluetoothStatusClick: () -> Unit = {},
+    onDataStatusClick: () -> Unit = {},
+    onGpsStatusClick: () -> Unit = {},
     installedIconFor: (String) -> Drawable?,
     onNavigate: (NavDestination) -> Unit,
     onShortcutClick: (Int) -> Unit,
@@ -201,11 +209,32 @@ fun Sidebar(
 
     // Connectivity status icons, moved from the removed home-screen header.
     // Bluetooth renders only when its state is readable (permission granted).
+    // Tapping one hands off to Android's own settings page for that radio.
     val statusIcons: @Composable () -> Unit = {
         val statusTint = if (isDayMode) Color(0xFF444444) else Color(0xFF666666)
-        if (isWifi) Icon(Icons.Default.Wifi, "WiFi", tint = statusTint, modifier = Modifier.size(16.dp))
-        if (isBluetooth == true) Icon(Icons.Default.Bluetooth, "Bluetooth", tint = statusTint, modifier = Modifier.size(16.dp))
-        if (isData) Icon(Icons.Default.SignalCellularAlt, "Data", tint = statusTint, modifier = Modifier.size(16.dp))
+        @Composable
+        fun statusBox(icon: ImageVector, desc: String, tint: Color, onClick: () -> Unit) {
+            Box(
+                modifier = Modifier
+                    .size(SLOT_SIZE)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClick = onClick),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, desc, tint = tint, modifier = Modifier.size(16.dp))
+            }
+        }
+        if (isWifi) statusBox(Icons.Default.Wifi, "WiFi", statusTint) { onWifiStatusClick() }
+        if (isBluetooth == true) statusBox(Icons.Default.Bluetooth, "Bluetooth", statusTint) { onBluetoothStatusClick() }
+        // GPS is always rendered — the icon + tint encode the fix quality
+        val (gpsIcon, gpsDesc, gpsTint) = when (gpsStrength) {
+            GpsStrength.OFF    -> Triple(Icons.Default.LocationOff,       "GPS off",       statusTint.copy(alpha = 0.35f))
+            GpsStrength.WEAK   -> Triple(Icons.Default.LocationSearching, "GPS searching", statusTint)
+            GpsStrength.FAIR   -> Triple(Icons.Default.MyLocation,        "GPS fair",      statusTint)
+            GpsStrength.STRONG -> Triple(Icons.Default.MyLocation,        "GPS strong",    if (isDayMode) Color(0xFF111111) else Color(0xFFE0E0E0))
+        }
+        statusBox(gpsIcon, gpsDesc, gpsTint) { onGpsStatusClick() }
+        if (isData) statusBox(Icons.Default.SignalCellularAlt, "Data", statusTint) { onDataStatusClick() }
     }
 
     if (isHorizontal) {

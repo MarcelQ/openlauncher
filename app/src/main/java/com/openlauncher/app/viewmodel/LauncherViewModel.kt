@@ -714,7 +714,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     // ── Location & Compass ────────────────────────────────────────────────────
     val location: StateFlow<LocationData?> = locationMgr.location
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // GPS fix quality for the sidebar status icon (satellites used in the
+    // GNSS fix; accuracy fallback on API < 24) — mapping in GpsStrengthLogic
+    val gpsStrength: StateFlow<com.openlauncher.app.data.GpsStrength> = locationMgr.gpsStrength
 
     val compassBearing: StateFlow<Float> = locationMgr.bearing
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)

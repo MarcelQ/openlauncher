@@ -1,14 +1,21 @@
 package com.openlauncher.app.util
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.location.GnssStatus
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Build
 import android.os.Bundle
+import androidx.core.content.ContextCompat
+import com.openlauncher.app.data.GpsStrength
+import com.openlauncher.app.data.GpsStrengthLogic
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.atan2
@@ -25,6 +32,7 @@ data class LocationData(
 
 class LocationCompassManager(context: Context) {
 
+    private val appContext      = context.applicationContext
     private val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private val sensorManager   = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
@@ -32,6 +40,15 @@ class LocationCompassManager(context: Context) {
     private val _bearing   = MutableStateFlow(0f)
     val location: StateFlow<LocationData?> = _location
     val bearing: StateFlow<Float> = _bearing
+
+    // Fix quality for the sidebar's GPS status icon. Satellites used in the
+    // GNSS fix (API 24+) drive it when available; fix accuracy is the fallback
+    // for older head units and network fixes.
+    private val _gpsStrength = MutableStateFlow(GpsStrength.OFF)
+    val gpsStrength: StateFlow<GpsStrength> = _gpsStrength
+    private var lastUsedInFix: Int?   = null
+    private var lastAccuracyM: Float? = null
+    private var gnssCallback: GnssStatus.Callback? = null
 
     private val gravity      = FloatArray(3)
     private val geomagnetic  = FloatArray(3)
@@ -75,6 +92,8 @@ class LocationCompassManager(context: Context) {
                 accuracy  = loc.accuracy,
                 speedMps  = if (loc.hasSpeed()) loc.speed else 0f
             )
+            lastAccuracyM = loc.accuracy
+            recomputeGpsStrength()
 
             // 1. If GPS has a hardware-computed bearing, use it (works offline)
             if (loc.hasBearing() && loc.bearing != 0f) {
@@ -102,8 +121,8 @@ class LocationCompassManager(context: Context) {
         // Must be overridden explicitly: the interface only gained default
         // implementations in API 30, so omitting them throws AbstractMethodError
         // on older head units when the GPS provider is toggled.
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
+        override fun onProviderEnabled(provider: String)  { recomputeGpsStrength() }
+        override fun onProviderDisabled(provider: String) { recomputeGpsStrength() }
     }
 
     fun start() {
@@ -139,11 +158,54 @@ class LocationCompassManager(context: Context) {
                 }
             }
         } catch (_: Exception) {}
+
+        registerGnssCallback()
+        recomputeGpsStrength()
     }
 
     fun stop() {
         sensorManager.unregisterListener(sensorListener)
         locationManager.removeUpdates(locationListener)
+        gnssCallback?.let { runCatching { locationManager.unregisterGnssStatusCallback(it) } }
+        gnssCallback = null
         lastLocationForBearing = null
+    }
+
+    // ── GPS fix-quality tracking (sidebar status icon) ───────────────────────
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun recomputeGpsStrength() {
+        val providerOn = runCatching {
+            locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+            locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        }.getOrDefault(false)
+        _gpsStrength.value = GpsStrengthLogic.evaluate(
+            providerOn, hasLocationPermission(), lastUsedInFix, lastAccuracyM
+        )
+    }
+
+    private fun registerGnssCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return  // GnssStatus is API 24
+        if (!hasLocationPermission()) return
+        try {
+            val cb = object : GnssStatus.Callback() {
+                override fun onSatelliteStatusChanged(status: GnssStatus) {
+                    var used = 0
+                    for (i in 0 until status.satelliteCount) {
+                        if (status.usedInFix(i)) used++
+                    }
+                    lastUsedInFix = used
+                    recomputeGpsStrength()
+                }
+            }
+            locationManager.registerGnssStatusCallback(cb)
+            gnssCallback = cb
+        } catch (_: Exception) {
+            // SecurityException (fine-location not held) or GNSS-less provider
+        }
     }
 }

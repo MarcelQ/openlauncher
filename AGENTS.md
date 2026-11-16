@@ -29,7 +29,11 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   and for the device-diagnostics report's pure helpers — head-unit vendor-package
   classification and sensor-type naming (`app\src\test\java\com\openlauncher\app\data\DeviceInfoReportTest.kt`;
   pure helpers split out of `data\DeviceInfoReport.kt`; the Context-driven collector in
-  `data\DeviceInfoCollector.kt` is device-verified only).
+  `data\DeviceInfoCollector.kt` is device-verified only);
+  and for the sidebar GPS status icon's strength mapping — satellites-used-in-fix tiers
+  plus the accuracy fallback (`app\src\test\java\com\openlauncher\app\data\GpsStrengthTest.kt`;
+  pure `data\GpsStrength.kt`; the GnssStatus plumbing in `util\LocationCompassManager.kt`
+  is device-verified only).
   JVM only, no device. No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).

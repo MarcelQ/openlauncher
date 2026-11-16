@@ -1,9 +1,12 @@
 package com.openlauncher.app
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -78,6 +81,7 @@ class MainActivity : ComponentActivity() {
             val isWifi      by vm.isWifi.collectAsStateWithLifecycle()
             val isData      by vm.isData.collectAsStateWithLifecycle()
             val isBluetooth by vm.isBluetooth.collectAsStateWithLifecycle()
+            val gpsStrength by vm.gpsStrength.collectAsStateWithLifecycle()
             val editMode    by vm.rearrangeMode.collectAsStateWithLifecycle()
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
             val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
@@ -166,6 +170,35 @@ class MainActivity : ComponentActivity() {
                                     isWifi        = isWifi,
                                     isData        = isData,
                                     isBluetooth   = isBluetooth,
+                                    onWifiStatusClick      = {
+                                        openConnectivitySettings(
+                                            29, Settings.Panel.ACTION_WIFI,
+                                            Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS
+                                        )
+                                    },
+                                    onBluetoothStatusClick = {
+                                        // No public Bluetooth panel intent exists —
+                                        // Android's Bluetooth settings page instead
+                                        openConnectivitySettings(
+                                            29, null,
+                                            Settings.ACTION_BLUETOOTH_SETTINGS, Settings.ACTION_SETTINGS
+                                        )
+                                    },
+                                    onDataStatusClick      = {
+                                        openConnectivitySettings(
+                                            30, Settings.Panel.ACTION_INTERNET_CONNECTIVITY,
+                                            Settings.ACTION_SETTINGS
+                                        )
+                                    },
+                                    gpsStrength            = gpsStrength,
+                                    onGpsStatusClick       = {
+                                        // No panel intent for location — Android's
+                                        // location sources page, then plain Settings
+                                        openConnectivitySettings(
+                                            99, null,
+                                            Settings.ACTION_LOCATION_SOURCE_SETTINGS, Settings.ACTION_SETTINGS
+                                        )
+                                    },
                                     isHorizontal  = isBottomBar,
                                     installedIconFor = { pkg ->
                                         apps.find { it.packageName == pkg }?.icon
@@ -374,5 +407,24 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         vm.startLocationUpdates()
+    }
+
+    // Status-icon hand-off: try Android's slide-over settings panel (API 29/30+)
+    // first, then the full settings page, then plain Settings as the last
+    // fallback — vendor ROMs (e.g. SPD's com.spd.setting) may lack panel
+    // activities, so each step catches ActivityNotFoundException.
+    private fun openConnectivitySettings(minPanelSdk: Int, panelAction: String?, vararg fallbackActions: String) {
+        if (panelAction != null && Build.VERSION.SDK_INT >= minPanelSdk) {
+            try {
+                startActivity(Intent(panelAction))
+                return
+            } catch (_: ActivityNotFoundException) { }
+        }
+        for (action in fallbackActions) {
+            try {
+                startActivity(Intent(action))
+                return
+            } catch (_: ActivityNotFoundException) { }
+        }
     }
 }
