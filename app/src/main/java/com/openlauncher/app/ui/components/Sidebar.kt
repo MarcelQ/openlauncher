@@ -45,6 +45,16 @@ import kotlin.math.roundToInt
 
 private val ICON_SIZE   = 22.dp
 private val SLOT_SIZE   = 52.dp
+// Connectivity status boxes: same touch-friendly clip but tighter than the
+// app slots so the five-icon cluster fits the 543.dp-tall unit screen
+private val STATUS_SIZE = 40.dp
+
+private class StatusEntry(
+    val icon: ImageVector,
+    val desc: String,
+    val tint: Color,
+    val onClick: () -> Unit
+)
 
 @Composable
 fun Sidebar(
@@ -55,10 +65,12 @@ fun Sidebar(
     isWifi: Boolean = false,
     isData: Boolean = false,
     isBluetooth: Boolean? = null,
+    isHotspot: Boolean? = null,
     // GPS fix quality — its icon is always shown and encodes the strength
     gpsStrength: GpsStrength = GpsStrength.OFF,
     // Tapping a status icon opens Android's own connectivity panel/settings
     onWifiStatusClick: () -> Unit = {},
+    onHotspotStatusClick: () -> Unit = {},
     onBluetoothStatusClick: () -> Unit = {},
     onDataStatusClick: () -> Unit = {},
     onGpsStatusClick: () -> Unit = {},
@@ -208,17 +220,22 @@ fun Sidebar(
     }
 
     // Connectivity status icons, moved from the removed home-screen header.
-    // All four are ALWAYS rendered: the off states use a distinct glyph at a
+    // All five are ALWAYS rendered: the off states use a distinct glyph at a
     // dim tint, so the rail never reshuffles as radios toggle. Tapping one
     // hands off to Android's own settings panel/page for that radio.
-    val statusIcons: @Composable () -> Unit = {
+    // Driver-first order (vertical rail: bottom→top; bottom bar: nav-cluster
+    // end→far end): Wi-Fi, personal hotspot, Bluetooth, cellular, GPS.
+    // `reversed` renders that list far-end-first — the vertical rail reads
+    // top→bottom, so it always reverses; the bottom bar reverses when its
+    // nav cluster sits on the right edge.
+    val statusIcons: @Composable (Boolean) -> Unit = { reversed ->
         val statusTint = if (isDayMode) Color(0xFF444444) else Color(0xFF666666)
         val inactiveTint = statusTint.copy(alpha = 0.35f)
         @Composable
         fun statusBox(icon: ImageVector, desc: String, tint: Color, onClick: () -> Unit) {
             Box(
                 modifier = Modifier
-                    .size(SLOT_SIZE)
+                    .size(STATUS_SIZE)
                     .clip(RoundedCornerShape(10.dp))
                     .clickable(onClick = onClick),
                 contentAlignment = Alignment.Center
@@ -226,35 +243,50 @@ fun Sidebar(
                 Icon(icon, desc, tint = tint, modifier = Modifier.size(16.dp))
             }
         }
-        statusBox(
-            if (isWifi) Icons.Default.Wifi else Icons.Default.WifiOff,
-            if (isWifi) "WiFi on" else "WiFi off",
-            if (isWifi) statusTint else inactiveTint
-        ) { onWifiStatusClick() }
         // null = state unreadable (permission missing) — render as inactive
         val btOn = isBluetooth == true
-        statusBox(
-            if (btOn) Icons.Default.Bluetooth else Icons.Default.BluetoothDisabled,
-            when {
-                isBluetooth == null -> "Bluetooth status unknown"
-                btOn               -> "Bluetooth on"
-                else               -> "Bluetooth off"
-            },
-            if (btOn) statusTint else inactiveTint
-        ) { onBluetoothStatusClick() }
-        // GPS always rendered — the icon + tint encode the fix quality
-        val (gpsIcon, gpsDesc, gpsTint) = when (gpsStrength) {
-            GpsStrength.OFF    -> Triple(Icons.Default.LocationOff,       "GPS off",       inactiveTint)
-            GpsStrength.WEAK   -> Triple(Icons.Default.LocationSearching, "GPS searching", statusTint)
-            GpsStrength.FAIR   -> Triple(Icons.Default.MyLocation,        "GPS fair",      statusTint)
-            GpsStrength.STRONG -> Triple(Icons.Default.MyLocation,        "GPS strong",    if (isDayMode) Color(0xFF111111) else Color(0xFFE0E0E0))
+        val hotspotOn = isHotspot == true
+        val gpsIcon: ImageVector; val gpsDesc: String; val gpsTint: Color
+        when (gpsStrength) {
+            GpsStrength.OFF    -> { gpsIcon = Icons.Default.LocationOff;       gpsDesc = "GPS off";       gpsTint = inactiveTint }
+            GpsStrength.WEAK   -> { gpsIcon = Icons.Default.LocationSearching; gpsDesc = "GPS searching"; gpsTint = statusTint }
+            GpsStrength.FAIR   -> { gpsIcon = Icons.Default.MyLocation;        gpsDesc = "GPS fair";      gpsTint = statusTint }
+            GpsStrength.STRONG -> { gpsIcon = Icons.Default.MyLocation;        gpsDesc = "GPS strong";    gpsTint = if (isDayMode) Color(0xFF111111) else Color(0xFFE0E0E0) }
         }
-        statusBox(gpsIcon, gpsDesc, gpsTint) { onGpsStatusClick() }
-        statusBox(
-            if (isData) Icons.Default.SignalCellularAlt else Icons.Default.SignalCellularOff,
-            if (isData) "Data on" else "Data off",
-            if (isData) statusTint else inactiveTint
-        ) { onDataStatusClick() }
+        val entries = listOf(
+            StatusEntry(
+                if (isWifi) Icons.Default.Wifi else Icons.Default.WifiOff,
+                if (isWifi) "WiFi on" else "WiFi off",
+                if (isWifi) statusTint else inactiveTint
+            ) { onWifiStatusClick() },
+            StatusEntry(
+                if (hotspotOn) Icons.Default.WifiTethering else Icons.Default.WifiTetheringError,
+                when {
+                    isHotspot == null -> "Personal hotspot status unknown"
+                    hotspotOn         -> "Personal hotspot on"
+                    else              -> "Personal hotspot off"
+                },
+                if (hotspotOn) statusTint else inactiveTint
+            ) { onHotspotStatusClick() },
+            StatusEntry(
+                if (btOn) Icons.Default.Bluetooth else Icons.Default.BluetoothDisabled,
+                when {
+                    isBluetooth == null -> "Bluetooth status unknown"
+                    btOn                -> "Bluetooth on"
+                    else                -> "Bluetooth off"
+                },
+                if (btOn) statusTint else inactiveTint
+            ) { onBluetoothStatusClick() },
+            StatusEntry(
+                if (isData) Icons.Default.SignalCellularAlt else Icons.Default.SignalCellularOff,
+                if (isData) "Data on" else "Data off",
+                if (isData) statusTint else inactiveTint
+            ) { onDataStatusClick() },
+            StatusEntry(gpsIcon, gpsDesc, gpsTint) { onGpsStatusClick() }
+        )
+        for (entry in if (reversed) entries.asReversed() else entries) {
+            statusBox(entry.icon, entry.desc, entry.tint, entry.onClick)
+        }
     }
 
     if (isHorizontal) {
@@ -304,9 +336,11 @@ fun Sidebar(
                     .fillMaxHeight()
                     .padding(horizontal = 10.dp),
                 verticalAlignment   = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                statusIcons()
+                // Nav cluster on the right => this cluster sits at the far left,
+                // so the driver-end icon (Wi-Fi) must read rightmost: reverse
+                statusIcons(settings.bottomBarShortcutsRight)
             }
         }
     } else {
@@ -317,12 +351,13 @@ fun Sidebar(
                 .background(sidebarBg),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Fixed head (top of screen): connectivity status icons
+            // Fixed head (top of screen): connectivity status icons, reading
+            // far-end-first (Wi-Fi lowest, nearest the thumb cluster)
             Column(
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                statusIcons()
+                statusIcons(true)
             }
 
             // Slots scroll in the space between the fixed clusters, pinned to

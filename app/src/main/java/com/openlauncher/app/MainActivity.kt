@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
             val isWifi      by vm.isWifi.collectAsStateWithLifecycle()
             val isData      by vm.isData.collectAsStateWithLifecycle()
             val isBluetooth by vm.isBluetooth.collectAsStateWithLifecycle()
+            val isHotspot   by vm.isHotspot.collectAsStateWithLifecycle()
             val gpsStrength by vm.gpsStrength.collectAsStateWithLifecycle()
             val editMode    by vm.rearrangeMode.collectAsStateWithLifecycle()
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
@@ -170,10 +171,20 @@ class MainActivity : ComponentActivity() {
                                     isWifi        = isWifi,
                                     isData        = isData,
                                     isBluetooth   = isBluetooth,
+                                    isHotspot     = isHotspot,
                                     onWifiStatusClick      = {
                                         openConnectivitySettings(
                                             29, Settings.Panel.ACTION_WIFI,
                                             Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS
+                                        )
+                                    },
+                                    onHotspotStatusClick   = {
+                                        // No panel intent for tethering — try the
+                                        // tethering settings page, then wireless
+                                        // settings, then plain Settings
+                                        openConnectivitySettings(
+                                            0, "android.settings.TETHER_SETTINGS",
+                                            Settings.ACTION_WIRELESS_SETTINGS, Settings.ACTION_SETTINGS
                                         )
                                     },
                                     onBluetoothStatusClick = {

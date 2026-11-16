@@ -765,11 +765,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val _isWifi = MutableStateFlow(false)
     private val _isData = MutableStateFlow(false)
     // null = unreadable (e.g. BLUETOOTH_CONNECT not granted on API 31+) — the
-    // sidebar then hides the icon rather than guessing
+    // sidebar renders the icon in its inactive state rather than guessing
     private val _isBluetooth = MutableStateFlow<Boolean?>(null)
+    // Personal hotspot: no public state API for third-party apps; most OEM
+    // builds (incl. SPD head units) mirror the toggle in Settings.Global
+    // "tether_on". Missing key or throw reads as unknown (null), never a crash.
+    private val _isHotspot = MutableStateFlow<Boolean?>(null)
     val isWifi: StateFlow<Boolean> = _isWifi
     val isData: StateFlow<Boolean> = _isData
     val isBluetooth: StateFlow<Boolean?> = _isBluetooth
+    val isHotspot: StateFlow<Boolean?> = _isHotspot
 
     fun refreshMedia() {
         MediaListenerService.requestRefresh()
@@ -993,6 +998,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 .getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
             bt?.adapter?.isEnabled
         }.getOrNull()
+        // Personal hotspot mirror — OEM key, absent on some ROMs: unknown, not
+        // a guess. Per-field guard keeps old head units from throwing here.
+        _isHotspot.value = runCatching {
+            when (AndroidSettings.Global.getInt(
+                getApplication<Application>().contentResolver, "tether_on", -1
+            )) {
+                1    -> true
+                0    -> false
+                else -> null
+            }
+        }.getOrNull()
     }
 
     override fun onCleared() {
@@ -1006,6 +1022,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     init {
         loadInstalledApps()
         refreshConnectivity()
+        // Home screens never leave onResume while parked, so the minute ticker
+        // keeps the sidebar status icons (incl. the hotspot mirror, which has
+        // no broadcast third-party apps can register for) current.
+        viewModelScope.launch {
+            minuteTicker.collect { refreshConnectivity() }
+        }
         if (hasSzchoicewayMcu) startHardwareRadioObserver()
         // Fetch weather on first location fix, then every 30 minutes.
         // The minute ticker covers the parked case where no location updates arrive.
