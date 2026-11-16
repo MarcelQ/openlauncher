@@ -92,7 +92,8 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("SOUNDBOARD",  "SOUNDBOARD",  Icons.Default.Piano,         "Custom sound pads"),
     WidgetTypeInfo("VOLUME",      "VOLUME",      Icons.Default.VolumeUp,      "Media volume control"),
     WidgetTypeInfo("BRIGHTNESS",  "BRIGHTNESS",  Icons.Default.WbSunny,       "Screen brightness presets"),
-    WidgetTypeInfo("TPMS",        "TIRE PRESSURE", Icons.Default.Usb,         "Tyre pressure (USB receiver)")
+    WidgetTypeInfo("TPMS",        "TIRE PRESSURE", Icons.Default.Usb,         "Tyre pressure (USB receiver)"),
+    WidgetTypeInfo("PIP_APP",     "APP OVERLAY",   Icons.Default.PictureInPictureAlt, "App in a floating window over the launcher")
 )
 
 /** True when a new 1×1 card could land on [pageIndex] — free cell, or room freed by shrinking. */
@@ -122,6 +123,7 @@ private fun cardLabel(type: String): String = when (type) {
     "TRIP_TRACKER" -> "TRIP"
     "SOUNDBOARD"  -> "SOUND"
     "TPMS"        -> "TIRE PRESSURE"
+    "PIP_APP"     -> "APP OVERLAY"
     else          -> type
 }
 
@@ -142,7 +144,6 @@ fun HomeScreen(
     onVolumeUp: () -> Unit,
     onAssignPip: () -> Unit,
     onClearPip: () -> Unit,
-    onLaunchPip: () -> Unit,
     onTapNowPlaying: () -> Unit,
     onResizeWidget: (id: String, gridX: Int, gridY: Int, spanX: Int, spanY: Int) -> Unit,
     onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
@@ -245,7 +246,7 @@ fun HomeScreen(
                     onRadioTune           = onRadioTune,
                     onAssignRadio         = onAssignRadio,
                     onTpmsConnect         = onTpmsConnect,
-                    onLaunchPip           = onLaunchPip,
+                    onAssignPip           = onAssignPip,
                     onUpdateSoundPad      = onUpdateSoundPad
                 )
             }
@@ -400,7 +401,7 @@ private fun WidgetPageGrid(
     onRadioTune: (band: String, freq: Float) -> Unit,
     onAssignRadio: () -> Unit,
     onTpmsConnect: () -> Unit,
-    onLaunchPip: () -> Unit,
+    onAssignPip: () -> Unit,
     onUpdateSoundPad: (index: Int, pad: com.openlauncher.app.data.SoundPadConfig) -> Unit
 ) {
     BoxWithConstraints(
@@ -684,6 +685,14 @@ private fun WidgetPageGrid(
                         showSpare      = settings.tpmsShowSpare,
                         onConnect      = onTpmsConnect,
                         modifier       = Modifier.fillMaxSize()
+                    )
+                    "PIP_APP" -> PipWidget(
+                        packageName = settings.pipAppPackage,
+                        accent      = accent,
+                        isDayMode   = isDayMode,
+                        isEditing   = editMode,
+                        onAssign    = onAssignPip,
+                        modifier    = Modifier.fillMaxSize()
                     )
                 }
 
@@ -1125,6 +1134,26 @@ private fun WidgetContextMenu(
                 BrightnessLevelRow("MED",  brightnessMediumPct, accent, isDayMode) { onSetBrightnessLevel("MEDIUM", it) }
                 HorizontalDivider(color = menuDivider)
                 BrightnessLevelRow("LOW",  brightnessLowPct, accent, isDayMode) { onSetBrightnessLevel("LOW", it) }
+            }
+            if (widgetType == "PIP_APP") {
+                HorizontalDivider(color = menuDivider)
+                ContextRow(
+                    label     = "CHOOSE APP",
+                    icon      = Icons.Default.Apps,
+                    tint      = accent,
+                    onClick   = onAssignPip,
+                    isDayMode = isDayMode
+                )
+                if (pipAppPackage.isNotEmpty()) {
+                    HorizontalDivider(color = menuDivider)
+                    ContextRow(
+                        label     = "CLEAR APP",
+                        icon      = Icons.Default.Clear,
+                        tint      = inactiveMenuTint,
+                        onClick   = onClearPip,
+                        isDayMode = isDayMode
+                    )
+                }
             }
 
         }

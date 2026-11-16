@@ -33,7 +33,11 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   and for the sidebar GPS status icon's strength mapping — satellites-used-in-fix tiers
   plus the accuracy fallback (`app\src\test\java\com\openlauncher\app\data\GpsStrengthTest.kt`;
   pure `data\GpsStrength.kt`; the GnssStatus plumbing in `util\LocationCompassManager.kt`
-  is device-verified only).
+  is device-verified only);
+  and for the APP OVERLAY (freeform PiP) card's pure decision helpers — launch-mode chain,
+  card-rect math, AOSP bundle-key constants (`app\src\test\java\com\openlauncher\app\ui\widget\PipFreeformTest.kt`;
+  framework-free helpers in `ui\widget\PipFreeform.kt`; the Context/ActivityOptions launch chain
+  in `ui\widget\PipWidget.kt` is device-verified only).
   JVM only, no device. No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).
@@ -146,7 +150,8 @@ here — never copy them into code, issues or commits.
 - **Sensors/audio config**: audio output + mic present, 48 kHz / 144-frame buffer — fine for the
   chime/soundboard; `volume music = 4/40` (40-step volume curve).
 - **Grants on this unit** (Launcher grants section): Open Launcher IS the default home; location
-  fine ✓, notification listener ✓, WRITE_SETTINGS ✓; overlay windows ✗ (PIP card dead) and
+  fine ✓, notification listener ✓, WRITE_SETTINGS ✓; overlay windows ✗ (harmless — the APP
+  OVERLAY card needs no overlay grant) and
   "install unknown apps" ✗ (in-app updater install blocked) — the two the user must grant.
 - **Installed apps** (219 total / 19 user): competing launchers `app.carlab.carlauncher` and
   `com.miniaa.launcher.pro`; user apps include Spotify, Waze, VLC, Stremio, LocalSend,

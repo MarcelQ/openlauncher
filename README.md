@@ -78,10 +78,12 @@ Speed and distance calculations use a rewritten GPS math layer with improved fil
 ### 🎨 Deep Personalization
 Accent color, background color, gradient, wallpaper with adjustable dim, font weight, text scale, UI scale, and app font — all tunable from the settings menu, which is organized into logical sections (Appearance, Layout, Widgets, System).
 
-### 📱 Picture-in-Picture (PiP) Overlay ⚠️ *Beta*
-Launch any app as a floating freeform window layered over the launcher.
+### 📱 App Overlay — freeform "PiP" windows ⚠️ *Beta*
+Add the **APP OVERLAY** card to the home grid, assign it any app (Google Maps, a dashcam viewer, a video player…) via the card's context menu, and tapping the card opens that app as a **floating freeform window sized to the card**, layered over the launcher instead of taking over the screen.
 
-> **This feature is currently in beta and requires the special `openlauncher-test-pip` build.** It relies on AOSP platform-level signing to access the window embedding APIs. The standard APK does not include PiP — use the `test-pip` release asset if you want to try it. Expect rough edges: not all apps behave correctly in a freeform window, and compatibility varies heavily by head unit ROM. This is a work in progress.
+> **How it works:** the launcher asks the system to open the app in *freeform windowing mode* at the card's screen position — the same mechanism head-unit ROMs use for their own "floating window" features. It is tried in stages (freeform via hidden launch options → freeform via the raw launch-options flag → plain fullscreen), so the worst case is a normal fullscreen launch. No special build, root or platform signature is needed.
+>
+> **Beta caveats:** the freeform window only appears if the ROM actually supports windowed launches — many aftermarket units do (they ship their own floating-window app), stock phone ROMs usually do not. If taps open the app fullscreen, the ROM ignored the request. On some ROMs a one-time `adb` toggle is needed (developer-option "Enable freeform windows", or `adb shell settings put global enable_freeform_support 1` plus `force_resizable_activities 1`). Expect rough edges: not all apps behave correctly in a freeform window, and compatibility varies heavily by head unit ROM. This is a work in progress.
 
 ### 🔔 First-Run Onboarding
 A clean onboarding flow on first launch explains key permissions (location, notification listener, draw-over-apps) before requesting them, with direct links to the relevant system settings screens.

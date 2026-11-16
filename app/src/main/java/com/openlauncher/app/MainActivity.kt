@@ -282,7 +282,6 @@ class MainActivity : ComponentActivity() {
                                         onVolumeUp          = vm::volumeUp,
                                         onAssignPip         = { vm.startPipPicker() },
                                         onClearPip          = { vm.clearPipApp() },
-                                        onLaunchPip         = { vm.launchApp(settings.pipAppPackage) },
                                         onTapNowPlaying     = {
                                             val pkg = nowPlaying?.controller?.packageName
                                             if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)

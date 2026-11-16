@@ -252,7 +252,7 @@ fun SettingsScreen(
             SettingsDivider()
             SettingsButton(
                 label    = "Draw Over Other Apps",
-                sublabel = if (canDrawOverlays) "Granted — PIP overlay enabled" else "Required for PIP floating window",
+                sublabel = if (canDrawOverlays) "Granted — some ROMs gate app-overlay windows with it" else "APP OVERLAY usually works without it — only some ROMs require it",
                 icon     = if (canDrawOverlays) Icons.Default.Layers else Icons.Default.LayersClear,
                 accent   = if (canDrawOverlays) accent else Color(0xFF993333),
                 onClick  = {
