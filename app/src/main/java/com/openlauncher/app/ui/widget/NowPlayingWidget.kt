@@ -58,7 +58,11 @@ import com.openlauncher.app.model.shuffleStateFromTitle
 import com.openlauncher.app.service.MediaListenerService
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import coil.imageLoader
+import coil.request.ImageRequest
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun NowPlayingWidget(
@@ -1037,6 +1041,41 @@ private fun QueueArtThumb(
 }
 
 /**
+ * Warm Coil's caches for the first 30 queue thumbnails as soon as a queue
+ * view opens, so rows appear with art already loaded instead of paying one
+ * network round-trip per row while scrolling (Coil's memory+disk cache then
+ * serves the rows, and re-opening the list later is instant).
+ * Best-effort: a failed prefetch just means the row does its normal
+ * on-demand load.
+ */
+@Composable
+private fun rememberQueueThumbPrefetch(queue: List<com.openlauncher.app.model.NowPlayingQueueItem>) {
+    val context = LocalContext.current
+    LaunchedEffect(queue) {
+        val uris = queue.mapNotNull { it.artUri?.takeIf(String::isNotEmpty) }.distinct().take(30)
+        if (uris.isEmpty()) return@LaunchedEffect
+        val loader = context.imageLoader
+        coroutineScope {
+            uris.forEach { uri ->
+                launch {
+                    runCatching {
+                        // Explicit small size: no view constraints exist during
+                        // prefetch, so ask for thumbnail resolution instead of
+                        // full-size originals.
+                        loader.enqueue(
+                            ImageRequest.Builder(context)
+                                .data(uri)
+                                .size(96)
+                                .build()
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Full-card queue list for large cards (≥4×4 grid cells): replaces the
  * player UI in place instead of opening a dialog. Data comes from the OS
  * media session — fully offline — and tapping a row jumps the source app to
@@ -1055,6 +1094,7 @@ private fun QueueInlineView(
 ) {
     val queue = state.queue
     val currentIndex = queueHighlightIndex(state.activeQueueItemId, queue, state.title)
+    rememberQueueThumbPrefetch(queue)
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1142,6 +1182,7 @@ private fun NowPlayingQueueSheet(
 ) {
     val queue = state.queue
     val currentIndex = queueHighlightIndex(state.activeQueueItemId, queue, state.title)
+    rememberQueueThumbPrefetch(queue)
     val titleColor = if (isDayMode) Color(0xFF111111) else Color.White
     val rowColor = if (isDayMode) Color(0xFF444444) else Color(0xFFB8C4D0)
     val subColor = if (isDayMode) Color(0xFF777777) else Color(0xFF6B7684)
