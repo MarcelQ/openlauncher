@@ -208,10 +208,12 @@ fun Sidebar(
     }
 
     // Connectivity status icons, moved from the removed home-screen header.
-    // Bluetooth renders only when its state is readable (permission granted).
-    // Tapping one hands off to Android's own settings page for that radio.
+    // All four are ALWAYS rendered: the off states use a distinct glyph at a
+    // dim tint, so the rail never reshuffles as radios toggle. Tapping one
+    // hands off to Android's own settings panel/page for that radio.
     val statusIcons: @Composable () -> Unit = {
         val statusTint = if (isDayMode) Color(0xFF444444) else Color(0xFF666666)
+        val inactiveTint = statusTint.copy(alpha = 0.35f)
         @Composable
         fun statusBox(icon: ImageVector, desc: String, tint: Color, onClick: () -> Unit) {
             Box(
@@ -224,17 +226,35 @@ fun Sidebar(
                 Icon(icon, desc, tint = tint, modifier = Modifier.size(16.dp))
             }
         }
-        if (isWifi) statusBox(Icons.Default.Wifi, "WiFi", statusTint) { onWifiStatusClick() }
-        if (isBluetooth == true) statusBox(Icons.Default.Bluetooth, "Bluetooth", statusTint) { onBluetoothStatusClick() }
-        // GPS is always rendered — the icon + tint encode the fix quality
+        statusBox(
+            if (isWifi) Icons.Default.Wifi else Icons.Default.WifiOff,
+            if (isWifi) "WiFi on" else "WiFi off",
+            if (isWifi) statusTint else inactiveTint
+        ) { onWifiStatusClick() }
+        // null = state unreadable (permission missing) — render as inactive
+        val btOn = isBluetooth == true
+        statusBox(
+            if (btOn) Icons.Default.Bluetooth else Icons.Default.BluetoothDisabled,
+            when {
+                isBluetooth == null -> "Bluetooth status unknown"
+                btOn               -> "Bluetooth on"
+                else               -> "Bluetooth off"
+            },
+            if (btOn) statusTint else inactiveTint
+        ) { onBluetoothStatusClick() }
+        // GPS always rendered — the icon + tint encode the fix quality
         val (gpsIcon, gpsDesc, gpsTint) = when (gpsStrength) {
-            GpsStrength.OFF    -> Triple(Icons.Default.LocationOff,       "GPS off",       statusTint.copy(alpha = 0.35f))
+            GpsStrength.OFF    -> Triple(Icons.Default.LocationOff,       "GPS off",       inactiveTint)
             GpsStrength.WEAK   -> Triple(Icons.Default.LocationSearching, "GPS searching", statusTint)
             GpsStrength.FAIR   -> Triple(Icons.Default.MyLocation,        "GPS fair",      statusTint)
             GpsStrength.STRONG -> Triple(Icons.Default.MyLocation,        "GPS strong",    if (isDayMode) Color(0xFF111111) else Color(0xFFE0E0E0))
         }
         statusBox(gpsIcon, gpsDesc, gpsTint) { onGpsStatusClick() }
-        if (isData) statusBox(Icons.Default.SignalCellularAlt, "Data", statusTint) { onDataStatusClick() }
+        statusBox(
+            if (isData) Icons.Default.SignalCellularAlt else Icons.Default.SignalCellularOff,
+            if (isData) "Data on" else "Data off",
+            if (isData) statusTint else inactiveTint
+        ) { onDataStatusClick() }
     }
 
     if (isHorizontal) {

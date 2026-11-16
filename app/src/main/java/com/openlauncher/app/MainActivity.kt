@@ -177,10 +177,13 @@ class MainActivity : ComponentActivity() {
                                         )
                                     },
                                     onBluetoothStatusClick = {
-                                        // No public Bluetooth panel intent exists —
-                                        // Android's Bluetooth settings page instead
+                                        // Bluetooth's slide-over panel never had a
+                                        // public constant (removed from recent SDK
+                                        // jars), but the intent string resolves on
+                                        // stock API 29-34 builds; the fallback chain
+                                        // catches vendor ROMs (SPD) that lack it
                                         openConnectivitySettings(
-                                            29, null,
+                                            29, "android.settings.panel.action.BLUETOOTH",
                                             Settings.ACTION_BLUETOOTH_SETTINGS, Settings.ACTION_SETTINGS
                                         )
                                     },
