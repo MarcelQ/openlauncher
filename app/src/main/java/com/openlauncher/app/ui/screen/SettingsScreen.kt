@@ -1033,8 +1033,8 @@ fun SettingsScreen(
 
             SettingsRow(
                 label    = "Pressure unit",
-                sublabel = "Sensor steps are 3.4 kPa (0.5 psi); the USB link carries no battery " +
-                    "value, so the card shows B—",
+                sublabel = "Sensor steps are 3.4 kPa (0.5 psi); the USB link carries no sensor " +
+                    "battery value, so the card does not show one",
                 icon     = Icons.Default.Speed
             ) {
                 Row {
@@ -1051,6 +1051,21 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Show spare wheel",
+                sublabel = "Some receivers pair a fifth sensor for the spare. Off = the card " +
+                    "never shows the SPARE tile, even when that sensor reports.",
+                icon     = Icons.Default.Adjust
+            ) {
+                Switch(
+                    checked         = settings.tpmsShowSpare,
+                    onCheckedChange = { onUpdate { copy(tpmsShowSpare = it) } },
+                    colors          = switchColors(accent)
+                )
             }
 
             SettingsDivider()

@@ -681,6 +681,7 @@ private fun WidgetPageGrid(
                         isDayMode      = isDayMode,
                         isEditing      = editMode,
                         alarmEnabled   = settings.tpmsAlarmEnabled,
+                        showSpare      = settings.tpmsShowSpare,
                         onConnect      = onTpmsConnect,
                         modifier       = Modifier.fillMaxSize()
                     )

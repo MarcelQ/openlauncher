@@ -128,6 +128,8 @@ data class AppSettings(
     val tpmsAlarmEnabled: Boolean = true,
     /** Audible warning on top of the visual one — off by default so it never surprises anyone. */
     val tpmsAlarmSound: Boolean = false,
+    /** Fifth spare-wheel tile on the card. Off = hide the SPARE tile even when a spare sensor reports. */
+    val tpmsShowSpare: Boolean = true,
     val vitalsAsBars: Boolean = false,
     val speedometerDigitalOnly: Boolean = false,
     val gradientDirection: GradientDirection = GradientDirection.DIAGONAL,

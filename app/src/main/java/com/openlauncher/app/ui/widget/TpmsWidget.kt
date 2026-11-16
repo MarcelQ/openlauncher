@@ -38,17 +38,23 @@ import kotlinx.coroutines.delay
 
 /**
  * Tyre pressure card: the four road wheels as FL/FR over RL/RR tiles, each showing pressure
- * in the configured unit plus temperature and sensor battery.
+ * in the configured unit plus tyre temperature. A fifth SPARE tile appears only when a spare
+ * sensor has reported and [showSpare] is on.
  *
  * Honesty rules baked into the rendering:
  *  - a wheel that has never reported shows "—", never a plausible-looking number;
- *  - sensor battery shows "—" because the receiver's 8-byte serial frame carries no battery
- *    field (the sensor reports battery only in its radio burst);
+ *  - no battery readout at all: the receiver's 8-byte serial frame carries no battery field
+ *    (the sensor reports battery only in its radio burst), so an always-"B—" slot was removed
+ *    rather than left as clutter;
  *  - readings older than [TireReading.STALE_AFTER_MS] are dimmed and dated, since a parked
  *    car's last-known pressures must not look live.
  *
- * When the link is down the card offers a CONNECT action, so the receiver can be brought up
- * from the home screen without opening settings.
+ * Link state is a small USB glyph in the footer instead of a status line: green while fresh,
+ * amber when the link is up but sensors have gone quiet (or the receiver is still opening),
+ * red on a transport error, grey while disconnected. While the link is down the wheel tiles
+ * dim to a third strength — last-known pressures must not read as live — and the card offers
+ * a CONNECT action, so the receiver can be brought up from the home screen without opening
+ * settings.
  *
  * The low-pressure warning is the [TpmsSnapshot.alarmingWheels] decision, not a local
  * comparison: with [alarmEnabled] off nothing turns red, and a sensor that has never reported
@@ -66,6 +72,7 @@ fun TpmsWidget(
     isDayMode: Boolean = false,
     isEditing: Boolean = false,
     alarmEnabled: Boolean = true,
+    showSpare: Boolean = true,
     onConnect: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -83,10 +90,21 @@ fun TpmsWidget(
     val alarmColor   = if (isDayMode) Color(0xFFB3261E) else Color(0xFFFF5A4D)
     val warnColor    = if (isDayMode) Color(0xFF8A6D3B) else Color(0xFFFFC145)
     val tileBorder   = if (isDayMode) Color(0xFFE5E7EB) else contentColor.copy(alpha = 0.12f)
+    // Link-OK tint for the footer status glyph: green reads "connected" without a status line.
+    val linkColor    = if (isDayMode) Color(0xFF2E7D32) else Color(0xFF4ADE80)
+
+    // DISCONNECTED / ERROR gray the wheel area out; CONNECTING stays bright because it is
+    // transient and the user just tapped CONNECT (or auto-connect is opening the stick).
+    val linkDown = snapshot.status == TpmsConnection.DISCONNECTED ||
+                   snapshot.status == TpmsConnection.ERROR
 
     // Single source of truth for "make this wheel obvious right now": honours the alarm switch,
     // the sensor's own leak flag, and the 0 kPa / no-signal guards.
     val alarmWheels = snapshot.alarmingWheels(lowPressureKpa, alarmEnabled, now)
+    // A hidden spare must never appear in the CHECK line either — the card should not reference
+    // a tile the user turned off. (The chime loop in LauncherViewModel still hears every wheel:
+    // hiding a tile is a display choice, muting a safety warning is not.)
+    val shownAlarms = if (showSpare) alarmWheels else alarmWheels.filterNot { it == TirePosition.SPARE }
     val alarming    = alarmWheels.isNotEmpty()
     // One pulse for the whole card, so all warned tiles breathe in step.
     val pulse       = if (alarming) alarmPulse() else 1f
@@ -101,11 +119,13 @@ fun TpmsWidget(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .graphicsLayer { alpha = if (linkDown) 0.35f else 1f }
         ) {
             // Font sizing follows the cell, so a 1×1 card stays legible and a 2×2 card fills up.
             val scale = fontScaleFor(maxWidth / 2f, maxHeight / 2f)
 
-            // Spare-wheel sensors are rare but real: show a fifth tile only if one reported.
+            // Spare-wheel sensors are rare but real: show a fifth tile only if one reported
+            // and the user has not hidden it in Settings ▸ Tyre Pressure.
             val spare = snapshot.reading(TirePosition.SPARE)
             val wheels = TirePosition.FOUR_WHEELS.map { it to snapshot.reading(it) }
 
@@ -137,7 +157,7 @@ fun TpmsWidget(
                         }
                     }
                 }
-                if (spare != null) {
+                if (showSpare && spare != null) {
                     Row(modifier = Modifier.height(22.dp * scale).fillMaxWidth()) {
                         TpmsWheelTile(
                             position    = TirePosition.SPARE,
@@ -164,13 +184,13 @@ fun TpmsWidget(
         TpmsFooter(
             snapshot      = snapshot,
             now           = now,
-            alarmWheels   = alarmWheels,
+            alarmWheels   = shownAlarms,
             pulse         = pulse,
             accent        = accent,
             alarmColor    = alarmColor,
             warnColor     = warnColor,
             dimColor      = dimColor,
-            contentColor  = contentColor,
+            linkColor     = linkColor,
             isEditing     = isEditing,
             onConnect     = onConnect
         )
@@ -310,9 +330,11 @@ private fun TpmsWheelTile(
             fontFamily    = FontFamily.Monospace,
             maxLines      = 1
         )
+        // Temperature line: deliberately larger than the old 8f — drivers asked to read tyre
+        // heat at a glance, and the removed battery text freed the width.
         Text(
             text          = subLine(reading, isMetric, stale, now),
-            fontSize      = (8f * scale).sp,
+            fontSize      = (11f * scale).sp,
             color         = subColor,
             fontFamily    = FontFamily.Monospace,
             maxLines      = 1
@@ -332,11 +354,10 @@ private fun subLine(
         "${reading.temperatureCelsius.toInt()}°"
     else
         "${(reading.temperatureCelsius * 9f / 5f + 32f).toInt()}°F"
-    // Battery is unknown over the USB link — the frame has no such field. Show the slot,
-    // never a made-up percentage.
-    val batt = reading.batteryPercent?.let { "B$it%" } ?: "B—"
+    // The battery readout is gone for good: the 8-byte USB frame has no battery field, so
+    // the slot could only ever show "B—" and just added clutter.
     val staleMark = if (stale) " ${reading.ageSeconds(now)}s" else ""
-    return "$temp $batt$staleMark"
+    return "$temp$staleMark"
 }
 
 @Composable
@@ -349,7 +370,7 @@ private fun TpmsFooter(
     alarmColor: Color,
     warnColor: Color,
     dimColor: Color,
-    contentColor: Color,
+    linkColor: Color,
     isEditing: Boolean,
     onConnect: () -> Unit
 ) {
@@ -358,35 +379,42 @@ private fun TpmsFooter(
         verticalAlignment     = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            val statusText: String
-            val statusColor: Color
+        Row(
+            modifier          = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            // Link state as one small glyph instead of a status line. The ageing and the
+            // transport detail survive in the content description for TalkBack and for
+            // accessibility scanning of the card.
+            val linkTint: Color
+            val linkDesc: String
             when (snapshot.status) {
                 TpmsConnection.CONNECTED -> {
                     val age = if (snapshot.lastFrameAt == 0L) null
                               else ((now - snapshot.lastFrameAt) / 1000L).coerceAtLeast(0L)
-                    statusText = if (age == null) "USB LINK — WAITING FOR SENSORS"
-                                 else if (age <= 20) "USB LINK  ${age}s AGO"
-                                 else "USB LINK  ${age / 60 + 1}m AGO"
-                    statusColor = if (age != null && age > 20) warnColor else contentColor.copy(alpha = 0.55f)
+                    linkTint = if (age == null || age > 20) warnColor else linkColor
+                    linkDesc = when {
+                        age == null -> "USB TPMS receiver connected, waiting for sensors"
+                        age > 20    -> "USB TPMS link idle, last sensor frame ${age} seconds ago"
+                        else        -> "USB TPMS receiver connected"
+                    }
                 }
-                TpmsConnection.CONNECTING   -> { statusText = "CONNECTING…"; statusColor = warnColor }
+                TpmsConnection.CONNECTING   -> { linkTint = warnColor; linkDesc = "Connecting USB TPMS receiver" }
                 TpmsConnection.ERROR        -> {
-                    statusText = (snapshot.detail ?: "LINK ERROR").uppercase()
-                    statusColor = alarmColor
+                    linkTint = alarmColor
+                    linkDesc = "USB TPMS link error: " + (snapshot.detail ?: "unknown")
                 }
                 TpmsConnection.DISCONNECTED -> {
-                    statusText = snapshot.detail?.uppercase() ?: "USB RECEIVER NOT CONNECTED"
-                    statusColor = dimColor
+                    linkTint = dimColor
+                    linkDesc = "USB TPMS receiver not connected: " + (snapshot.detail ?: "no receiver")
                 }
             }
-            Text(
-                text          = statusText,
-                fontSize      = 8.5.sp,
-                color         = statusColor,
-                fontFamily    = FontFamily.Monospace,
-                letterSpacing = 1.sp,
-                maxLines      = 1
+            Icon(
+                imageVector        = Icons.Default.Usb,
+                contentDescription = linkDesc,
+                tint               = linkTint,
+                modifier           = Modifier.size(13.dp)
             )
             if (alarmWheels.isNotEmpty()) {
                 Text(
