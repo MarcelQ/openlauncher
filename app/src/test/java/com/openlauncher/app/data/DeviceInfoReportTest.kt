@@ -114,4 +114,31 @@ class DeviceInfoReportTest {
         assertEquals("system", DeviceInfoReport.installMarker(true))
         assertEquals("user  ", DeviceInfoReport.installMarker(false))
     }
+
+    // ── freeform / APP OVERLAY probe helpers ─────────────────────────────────
+
+    @Test
+    fun `freeform verdict covers feature-flag and enabler combinations`() {
+        assertTrue(DeviceInfoReport.freeformSupportLine(true, "1").startsWith("SUPPORTED"))
+        assertTrue(DeviceInfoReport.freeformSupportLine(true, null).contains("declares the feature"))
+        assertTrue(DeviceInfoReport.freeformSupportLine(false, "1").contains("ENABLER ON"))
+        assertTrue(DeviceInfoReport.freeformSupportLine(false, "0").contains("explicitly set to 0"))
+        assertTrue(DeviceInfoReport.freeformSupportLine(false, null).contains("enable_freeform_support 1"))
+    }
+
+    @Test
+    fun `resizability summary flags apps that opt out of freeform windows`() {
+        assertEquals("yes (app manifest resizable)", DeviceInfoReport.resizabilitySummary(true, emptyList()))
+        assertTrue(DeviceInfoReport.resizabilitySummary(false, listOf(false, false)).startsWith("NO"))
+        assertEquals("yes (activity-level resizable)", DeviceInfoReport.resizabilitySummary(null, listOf(false, true)))
+        assertTrue(DeviceInfoReport.resizabilitySummary(null, emptyList()).startsWith("unreadable"))
+    }
+
+    @Test
+    fun `su summary distinguishes rooted from clean ROMs`() {
+        assertEquals("no su binaries found (not rooted)", DeviceInfoReport.suSummary(emptyList()))
+        assertEquals("ROOTED: /system/xbin/su", DeviceInfoReport.suSummary(listOf("/system/xbin/su")))
+        // Candidate list must stay existence-probe-only paths, never executed.
+        assertTrue(DeviceInfoReport.suCandidatePaths.all { it.startsWith("/") })
+    }
 }

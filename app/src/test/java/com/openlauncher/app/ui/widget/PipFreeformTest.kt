@@ -62,4 +62,22 @@ class PipFreeformTest {
         assertEquals(5, WINDOWING_MODE_FREEFORM)
         assertEquals("android:activity.windowingMode", KEY_LAUNCH_WINDOWING_MODE)
     }
+
+    @Test
+    fun `launch log keeps the newest entries in chronological order`() {
+        PipLaunchLog.record("a")
+        PipLaunchLog.record("b")
+        PipLaunchLog.record("c")
+        val tail = PipLaunchLog.snapshot().takeLast(3)
+        assertEquals(listOf("a", "b", "c"), tail)
+    }
+
+    @Test
+    fun `launch log is a ring buffer capped at 6 entries`() {
+        repeat(10) { PipLaunchLog.record("entry-$it") }
+        val snap = PipLaunchLog.snapshot()
+        assertEquals(6, snap.size)
+        assertEquals("entry-4", snap.first())
+        assertEquals("entry-9", snap.last())
+    }
 }

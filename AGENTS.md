@@ -35,9 +35,11 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   pure `data\GpsStrength.kt`; the GnssStatus plumbing in `util\LocationCompassManager.kt`
   is device-verified only);
   and for the APP OVERLAY (freeform PiP) card's pure decision helpers — launch-mode chain,
-  card-rect math, AOSP bundle-key constants (`app\src\test\java\com\openlauncher\app\ui\widget\PipFreeformTest.kt`;
+  card-rect math, AOSP bundle-key constants, launch-log ring buffer
+  (`app\src\test\java\com\openlauncher\app\ui\widget\PipFreeformTest.kt`;
   framework-free helpers in `ui\widget\PipFreeform.kt`; the Context/ActivityOptions launch chain
-  in `ui\widget\PipWidget.kt` is device-verified only).
+  in `ui\widget\PipWidget.kt` is device-verified only); plus the device report's freeform verdict /
+  resizability / su-summary helpers (`DeviceInfoReportTest.kt`).
   JVM only, no device. No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).

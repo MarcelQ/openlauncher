@@ -48,3 +48,20 @@ const val WINDOWING_MODE_FREEFORM = 5
 /** The raw key ActivityOptions.toBundle() carries the windowing mode under;
  *  stuffing it directly bypasses the hidden setter when reflection is gated. */
 const val KEY_LAUNCH_WINDOWING_MODE = "android:activity.windowingMode"
+
+/**
+ * Last few APP OVERLAY launch outcomes (newest last). Process-lifetime memory
+ * only — nothing persisted. Surfaces in the Settings ▸ Diagnostics report so a
+ * head-unit screenshot answers "which attempt threw what" without adb logcat.
+ */
+object PipLaunchLog {
+    private const val MAX_ENTRIES = 6
+    private val entries = ArrayDeque<String>()
+
+    fun record(entry: String) = synchronized(this) {
+        entries.addLast(entry)
+        while (entries.size > MAX_ENTRIES) entries.removeFirst()
+    }
+
+    fun snapshot(): List<String> = synchronized(this) { entries.toList() }
+}

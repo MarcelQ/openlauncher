@@ -48,7 +48,7 @@ import java.util.Locale
  */
 object DeviceInfoCollector {
 
-    fun collect(context: Context): String = buildString {
+    fun collect(context: Context, pipAppPackage: String = ""): String = buildString {
         line("OPENLAUNCHER DEVICE REPORT")
         line("generated ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
         line("NOTE: lists installed apps and system settings — review before sharing")
@@ -311,6 +311,72 @@ object DeviceInfoCollector {
                 Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
                     ?.contains(context.packageName) == true
             }
+        }
+
+        section("APP OVERLAY freeform probe (PIP diagnostics)") {
+            val pm = context.packageManager
+            // The two framework signals that decide whether a normal app may
+            // open a freeform window here. Both reads guarded — old units lock
+            // Settings providers down.
+            val feature = runCatching {
+                pm.hasSystemFeature("android.software.freeform_window_management")
+            }.getOrDefault(false)
+            val enabler = runCatching {
+                Settings.Global.getString(context.contentResolver, "enable_freeform_support")
+            }.getOrNull()
+            field("feature freeform_window_management") { feature }
+            field("global enable_freeform_support") { enabler ?: "unset" }
+            field("global force_resizable_activities") {
+                runCatching { Settings.Global.getString(context.contentResolver, "force_resizable_activities") }
+                    .getOrNull() ?: "unset"
+            }
+            line("  verdict = ${DeviceInfoReport.freeformSupportLine(feature, enabler)}")
+            field("vendor float-window app (com.spd.floatwindow)") {
+                runCatching {
+                    "installed, v${pm.getPackageInfo("com.spd.floatwindow", 0).versionName}"
+                }.getOrDefault("not installed")
+            }
+            // Existence probe only — the app never executes su. Its presence
+            // decides whether a root freeform launcher (su -c am start
+            // --windowingMode 5 …) could be added as an extra chain rung.
+            line("  root = ${DeviceInfoReport.suSummary(
+                DeviceInfoReport.suCandidatePaths.filter { java.io.File(it).exists() }
+            )}")
+            if (pipAppPackage.isEmpty()) {
+                line("  pip app = (none assigned — APP OVERLAY card menu ▸ CHOOSE APP)")
+            } else {
+                line("  pip app = $pipAppPackage")
+                val installedVersion = runCatching {
+                    pm.getPackageInfo(pipAppPackage, 0).versionName ?: "?"
+                }.getOrNull()
+                line("  pip app installed = ${installedVersion ?: "NOT INSTALLED"}")
+                // Does the assigned app opt out of resizing? If it does, even a
+                // freeform-capable ROM may force it fullscreen. The manifest
+                // boolean lives in @hide fields (ApplicationInfo/ActivityInfo.
+                // resizeableActivity) — read by reflection where the ROM allows
+                // it, and fall back to the public FLAG_RESIZEABLE_FOR_TASK bit.
+                val appFlag = runCatching {
+                    val ai = pm.getApplicationInfo(pipAppPackage, 0)
+                    android.content.pm.ApplicationInfo::class.java
+                        .getField("resizeableActivity").getBoolean(ai)
+                }.getOrNull()
+                val actFlags = runCatching {
+                    val pi = pm.getPackageInfo(pipAppPackage, PackageManager.GET_ACTIVITIES)
+                    (pi.activities ?: emptyArray()).map { a ->
+                        runCatching {
+                            android.content.pm.ActivityInfo::class.java
+                                .getField("resizeableActivity").getBoolean(a)
+                        }.getOrDefault((a.flags and 0x00200000) != 0) // ActivityInfo.FLAG_RESIZEABLE_FOR_TASK (bit fixed in AOSP)
+                    }
+                }.getOrDefault(emptyList())
+                line("  pip app resizable = ${DeviceInfoReport.resizabilitySummary(appFlag, actFlags)}")
+            }
+            // What the last APP OVERLAY taps actually did (which attempt threw
+            // what) — logcat without needing adb attached.
+            line("  last app-overlay launches (this process):")
+            val attempts = com.openlauncher.app.ui.widget.PipLaunchLog.snapshot()
+            if (attempts.isEmpty()) line("    (none since launcher start)")
+            attempts.forEach { line("    $it") }
         }
 
         section("Installed packages") {

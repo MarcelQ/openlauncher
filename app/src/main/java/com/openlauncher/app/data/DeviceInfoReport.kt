@@ -100,4 +100,54 @@ object DeviceInfoReport {
 
     /** "system"/"user" marker for the installed-apps list. */
     fun installMarker(isSystemApp: Boolean): String = if (isSystemApp) "system" else "user  "
+
+    // ── APP OVERLAY / freeform probe (Settings ▸ Diagnostics) ────────────────
+
+    /**
+     * One-line verdict on whether this ROM can host freeform windows, from the
+     * two framework signals: the declared system feature and the legacy
+     * `Settings.Global/enable_freeform_support` enabler. On API ≤30 AOSP builds
+     * OR the enabler into the window manager's freeform check, so "enabler ON"
+     * alone is usually enough; newer platforms gate windowing-mode requests by
+     * caller privilege regardless of the setting.
+     */
+    fun freeformSupportLine(featureDeclared: Boolean, enabler: String?): String = when {
+        featureDeclared && enabler == "1" ->
+            "SUPPORTED — ROM declares the feature AND the enabler is on"
+        featureDeclared ->
+            "ROM declares the feature; enabler unset/off (feature alone should suffice)"
+        enabler == "1" ->
+            "ENABLER ON but no feature flag — API≤30 AOSP still honors freeform, try the card"
+        enabler == "0" ->
+            "OFF — enabler explicitly set to 0; `adb shell settings put global enable_freeform_support 1`"
+        else ->
+            "OFF — no feature flag, enabler never set; `adb shell settings put global enable_freeform_support 1` (developer option 'Enable freeform windows' does the same)"
+    }
+
+    /**
+     * Whether the assigned APP OVERLAY app may run in a resizable/freeform
+     * window. [appFlag] = ApplicationInfo.resizeableActivity (null on API <24),
+     * [activityFlags] = per-activity resizeable bits collected on the caller side.
+     */
+    fun resizabilitySummary(appFlag: Boolean?, activityFlags: List<Boolean>): String = when {
+        appFlag == true          -> "yes (app manifest resizable)"
+        appFlag == false && activityFlags.none { it } ->
+            "NO — app opts out of resizing; even a freeform-capable ROM may force it fullscreen"
+        activityFlags.any { it } -> "yes (activity-level resizable)"
+        else                     -> "unreadable — hidden resize fields blocked on this ROM; N+ apps default to resizable unless opted out"
+    }
+
+    /**
+     * Common su binary locations checked by the collector (existence only — the
+     * app never executes them). Ordered like the well-known rooting-software
+     * layouts on aftermarket head-unit ROMs.
+     */
+    val suCandidatePaths: List<String> = listOf(
+        "/system/bin/su", "/system/xbin/su", "/sbin/su", "/vendor/bin/su",
+        "/system/xbin/daemonsu", "/system/bin/daemonsu"
+    )
+
+    fun suSummary(foundPaths: List<String>): String =
+        if (foundPaths.isEmpty()) "no su binaries found (not rooted)"
+        else "ROOTED: " + foundPaths.joinToString()
 }

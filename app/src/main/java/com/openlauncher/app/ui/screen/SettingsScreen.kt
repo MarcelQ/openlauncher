@@ -1322,7 +1322,7 @@ fun SettingsScreen(
                     if (!collectingReport) diagScope.launch {
                         collectingReport = true
                         // File stats, package list and Settings-provider queries — off the main thread
-                        deviceReport = withContext(Dispatchers.IO) { DeviceInfoCollector.collect(context) }
+                        deviceReport = withContext(Dispatchers.IO) { DeviceInfoCollector.collect(context, settings.pipAppPackage) }
                         collectingReport = false
                     }
                 }
@@ -1331,7 +1331,8 @@ fun SettingsScreen(
                 label = "What the report contains",
                 sublabel = "Android & SoC build info · screen size/dpi/diagonal · RAM & storage · sensor list · " +
                     "input devices (steering-wheel controllers) · audio config · szchoiceway/MCU radio backend · " +
-                    "Settings.Global keys · USB devices · battery · launcher permission state · installed packages. " +
+                    "Settings.Global keys · USB devices · battery · launcher permission state · " +
+                    "APP OVERLAY freeform probe (feature flag, enabler, root, last launch attempts) · installed packages. " +
                     "No serials or accounts, but still review it before sharing.",
                 icon = Icons.Default.Info
             ) {}

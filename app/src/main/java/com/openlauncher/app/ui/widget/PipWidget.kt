@@ -159,12 +159,16 @@ private fun launchOverLauncher(context: Context, packageName: String, bounds: Fr
         }
     if (intent == null) {
         Log.w(TAG, "no launch intent for $packageName")
+        PipLaunchLog.record("${timeStamp()} $packageName :: no launch intent")
         return null
     }
     // MULTIPLE_TASK so an already-running app opens a second freeform instance
     // over the launcher instead of just raising its existing fullscreen task.
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
 
+    // Trace of every attempt ("X failed(Reason); Y OK") — goes to the
+    // PipLaunchLog ring buffer and shows up in the Diagnostics report.
+    val trace = StringBuilder()
     for (mode in pipLaunchPlan(bounds?.isValid == true)) {
         try {
             when (mode) {
@@ -188,14 +192,22 @@ private fun launchOverLauncher(context: Context, packageName: String, bounds: Fr
                 }
                 FULLSCREEN -> context.startActivity(intent)
             }
+            trace.append("$mode OK")
             Log.i(TAG, "$mode OK pkg=$packageName bounds=$bounds")
+            PipLaunchLog.record("${timeStamp()} $packageName :: $trace (bounds=$bounds)")
             return mode
         } catch (e: Exception) {
+            trace.append("$mode failed(${e.javaClass.simpleName}); ")
             Log.w(TAG, "$mode failed for $packageName: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
+    trace.append("LAUNCH FAILED")
+    PipLaunchLog.record("${timeStamp()} $packageName :: $trace")
     return null
 }
+
+private val launchLogTimeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+private fun timeStamp(): String = launchLogTimeFormat.format(java.util.Date())
 
 /** ActivityOptions.setLaunchBounds is public since API 24; minSdk 21 guards it. */
 private fun applyLaunchBounds(opts: ActivityOptions, bounds: FreeformBounds) {
