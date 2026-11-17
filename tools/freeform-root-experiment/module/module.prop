@@ -1,0 +1,6 @@
+id=freeform-feature-declare
+name=Declare freeform_window_management feature
+version=1.0
+versionCode=1
+author=MarcelQ (OpenLauncher bench)
+description=Declares the android.software.freeform_window_management system feature (adds the missing /system/etc/permissions XML systemlessly) and sets enable_freeform_support + force_resizable_activities at boot. For the SPD trinket bench; disable from the Magisk Modules switch to revert.

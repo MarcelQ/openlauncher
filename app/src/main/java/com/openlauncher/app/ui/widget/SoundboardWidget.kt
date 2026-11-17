@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.openlauncher.app.data.SoundPadConfig
+import com.openlauncher.app.util.launchSafPicker
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -260,7 +261,9 @@ private fun PadAssignDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
-                        onClick = { filePicker.launch(arrayOf("audio/*")) },
+                        onClick = {
+                            launchSafPicker(filePicker, arrayOf("audio/*"), context)
+                        },
                         modifier = Modifier.weight(1f).height(30.dp),
                         shape = RoundedCornerShape(2.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),

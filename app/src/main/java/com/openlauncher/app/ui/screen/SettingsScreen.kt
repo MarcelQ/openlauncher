@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.openlauncher.app.BuildConfig
 import com.openlauncher.app.data.ApkDownloader
 import com.openlauncher.app.data.DeviceInfoCollector
+import com.openlauncher.app.data.DeviceInfoReport
 import com.openlauncher.app.data.AppFont
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
@@ -50,6 +51,7 @@ import com.openlauncher.app.data.UpdateReason
 import com.openlauncher.app.data.UpdateUiState
 import com.openlauncher.app.data.WeatherProvider
 import com.openlauncher.app.tpms.PressureUnit
+import com.openlauncher.app.util.launchSafPicker
 import com.openlauncher.app.ui.theme.LocalDayMode
 import com.openlauncher.app.util.SunriseSunset
 import kotlinx.coroutines.launch
@@ -734,7 +736,9 @@ fun SettingsScreen(
                 sublabel = if (settings.wallpaperUri.isNotEmpty()) "Custom wallpaper active" else "Choose image from gallery",
                 icon     = Icons.Default.Wallpaper,
                 accent   = accent,
-                onClick  = { wallpaperPicker.launch(arrayOf("image/*")) }
+                onClick  = {
+                    launchSafPicker(wallpaperPicker, arrayOf("image/*"), context)
+                }
             )
             if (settings.wallpaperUri.isNotEmpty()) {
                 Column {
@@ -1404,6 +1408,62 @@ fun SettingsScreen(
                         "refused: ${t.javaClass.simpleName}"
                     }
                     Toast.makeText(context, sent, Toast.LENGTH_LONG).show()
+                }
+            )
+            // Third probe (2026-11-18 vendor dex research, docs/float-window-research.md):
+            // the ROM-native app sidebar (FloatSourceWindow, 9 app buttons + nav keys)
+            // lives in SpdSystemUI and reacts LIVE to Settings.System keys via
+            // ContentObservers. Writing the keys with our WRITE_SETTINGS grant
+            // shows/hides it without a reboot. On the unit both keys read 0 and the
+            // button position is parked off-screen (Y = -138) - the pure helper
+            // repositions it on enable. Pure decision: vendorSidebarToggleValues.
+            SettingsButton(
+                label = "Toggle Vendor Float Sidebar (Dev)",
+                sublabel = "Flips SETTINGS_SHORTCUT_FLOAT + SIDEBAR_APPS_FLOAT_BUTTON " +
+                    "so the ROM's own floating app panel appears/disappears. Needs " +
+                    "Settings ▸ Apps ▸ 'modify system settings' granted to Open Launcher.",
+                icon = Icons.Default.OpenInNew,
+                accent = accent,
+                onClick = {
+                    if (!com.openlauncher.app.util.SystemBrightness.canWrite(context)) {
+                        Toast.makeText(context, "Grant 'modify system settings' to Open Launcher first",
+                            Toast.LENGTH_LONG).show()
+                        runCatching { context.startActivity(
+                            com.openlauncher.app.util.SystemBrightness.grantIntent(context)) }
+                    } else {
+                        val cur = try {
+                            Pair(
+                                Settings.System.getInt(context.contentResolver, "SETTINGS_SHORTCUT_FLOAT", 0),
+                                Settings.System.getInt(context.contentResolver, "SIDEBAR_APPS_FLOAT_BUTTON", 0),
+                            )
+                        } catch (t: Throwable) { Pair(0, 0) }
+                        val values = DeviceInfoReport.vendorSidebarToggleValues(cur.first, cur.second)
+                        // Never trust the write: API 37 rejects non-allowlisted
+                        // Settings.System keys with IllegalArgumentException
+                        // ("You cannot keep your settings in the secure settings")
+                        // and crashed the launcher pre-guard on the AVD 11-18 00:17.
+                        // The API 30 SPD unit accepts them (its own Settings app
+                        // writes them) — but every ROM in between decides its own
+                        // policy, so per-key try/catch is mandatory.
+                        val failed = mutableMapOf<String, String>()
+                        values.forEach { (key, value) ->
+                            try {
+                                if (!Settings.System.putInt(context.contentResolver, key, value))
+                                    failed[key] = "refused"
+                            } catch (t: Throwable) {
+                                failed[key] = t.javaClass.simpleName
+                            }
+                        }
+                        Toast.makeText(context, when {
+                            failed.isNotEmpty() -> "write refused for: " +
+                                failed.entries.joinToString { "${it.key} (${it.value})" } +
+                                " — this ROM blocks custom system-settings keys"
+                            values.getValue("SETTINGS_SHORTCUT_FLOAT") == 1 ->
+                                "vendor float sidebar ENABLED - a draggable button should " +
+                                    "have appeared near the top-left"
+                            else -> "vendor float sidebar disabled"
+                        }, Toast.LENGTH_LONG).show()
+                    }
                 }
             )
         }

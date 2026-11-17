@@ -106,11 +106,30 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   LocalChangeBroadcastReceiver — action strings unknown).** Settings.System keys
   `FLOAT_BUTTON_ABS_X/Y`, `SETTINGS_SHORTCUT_FLOAT`, `SIDEBAR_APPS_FLOAT_BUTTON`,
   `SETTING_LRC_FLOAT_WINDOW_MODE` suggest the feature is a draggable on-screen button opening a
-  float-window UI. Next rung implemented: Diagnostics ▸ "Open Vendor Float-Window App" dev button
-  launches the MainActivity by explicit component (AVD: ActivityNotFoundException toast, launcher
-  survives); the user's observation of that UI (can it float Maps?) decides whether to integrate it
-  as the APP OVERLAY path. If it fails, fall back to a native map card (osmdroid/OSM tiles +
-  deep-link handoff to Maps/Waze). Freeform itself stays dead on this ROM (see verdict above).
+  float-window UI. **2026-11-18 FINAL VERDICT (unit adb forensics + pulled-APK dex analysis, full
+  writeup in `docs\float-window-research.md`): `com.spd.floatwindow` is BROKEN on this ROM — its
+  classes.dex lacks androidx.constraintlayout, so MainActivity AND the service crash-loop
+  (`ClassNotFoundException`), and `Settings.Global/hide_error_dialogs=1` hides the crash dialog
+  (that was "opens for a second and bounces back"); its exported receivers are only
+  BOOT/SCREEN_ON/BLUETOOTH/LOCALE and `FloatWindowService.onStartCommand` takes no extras →
+  interop DEAD. The real app-float feature lives in SpdSystemUI (`com.spd.window.shortcut.FloatButtonWindow`
+  / `FloatSourceWindow`: 9 hardcoded app buttons doing plain fullscreen `startActivity` handoff,
+  plus back/home/power/volume keys), toggled LIVE by `SpdStatusBarViewManager` ContentObservers on
+  Settings.System `SETTINGS_SHORTCUT_FLOAT`/`SIDEBAR_APPS_FLOAT_BUTTON` (both 0 on the unit;
+  `FLOAT_BUTTON_ABS_Y` = -138 parked off-screen) — any WRITE_SETTINGS app can toggle them, so
+  Diagnostics now ships "Toggle Vendor Float Sidebar (Dev)" (pure helper
+  `DeviceInfoReport.vendorSidebarToggleValues`, JVM-tested; writes are per-key try/catch because
+  newer Android rejects custom Settings.System keys — unguarded write crashed the launcher on the
+  API 37 AVD). The unit's bootloader is ALREADY UNLOCKED (`ro.boot.flash.locked=0`,
+  `verifiedbootstate=orange`) and the build is debuggable (`ro.debuggable=1`, `ro.secure=0`,
+  `ro.adb.secure=0`) → `adb root` likely works → the remaining route to true floating app windows
+  on this unit is the revertible experiment staged in `tools\freeform-root-experiment\` (declare
+  the missing `android.software.freeform_window_management` system feature in
+  /system/etc/permissions + boot-image backup rules). If freeform still downgrades after that,
+  the SPD fork is unfixably deep for this unit: ship handoff cards + a native osmdroid map card.
+  The freeform launch chain itself stays for ROMs that keep AOSP behavior (verified on API 37 AVD).
+  Related unit fact: no `com.android.documentsui` exists on it, so every SAF
+  (`OpenDocument`/`GetContent`) call site must go through `util\SafPicker.kt`.**
   The Settings ▸ Diagnostics report's `process uid` line confirms uid 1000 without adb.
   (AVD caveat: the API 37 Google-Play AVD rejects this APK exactly with that error — its system
   uses Google keys — which is the expected negative control, not a bug.)

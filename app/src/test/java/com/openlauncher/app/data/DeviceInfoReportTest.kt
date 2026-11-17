@@ -151,4 +151,22 @@ class DeviceInfoReportTest {
         assertTrue(DeviceInfoReport.appExitReasonName(16).startsWith("package update"))
         assertEquals("code 42", DeviceInfoReport.appExitReasonName(42))
     }
+
+    @Test
+    fun `vendor sidebar toggle flips keys and only moves the button when enabling`() {
+        // Both off on the unit (Settings.System dump 2026-11-17) -> enable writes 1s
+        // AND repositions the button (its live Y was -138, parked off-screen).
+        val on = DeviceInfoReport.vendorSidebarToggleValues(0, 0)
+        assertEquals(1, on["SETTINGS_SHORTCUT_FLOAT"])
+        assertEquals(1, on["SIDEBAR_APPS_FLOAT_BUTTON"])
+        assertTrue((on["FLOAT_BUTTON_ABS_Y"] ?: 0) > 0)
+
+        // Anything already on -> disable, and the drag position is left untouched.
+        for ((s, b) in listOf(1 to 0, 0 to 1, 1 to 1)) {
+            val off = DeviceInfoReport.vendorSidebarToggleValues(s, b)
+            assertEquals(0, off["SETTINGS_SHORTCUT_FLOAT"])
+            assertEquals(0, off["SIDEBAR_APPS_FLOAT_BUTTON"])
+            assertTrue(!off.containsKey("FLOAT_BUTTON_ABS_X") && !off.containsKey("FLOAT_BUTTON_ABS_Y"))
+        }
+    }
 }

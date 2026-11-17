@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Standard AOSP system-features declaration (the same format every OEM uses, e.g.
+  frameworks/base/data/etc/android.software.live_tv.xml). Present on this unit's
+  /system/etc/permissions/ already for other features; the freeform one is simply
+  missing on the SPD build. Adding it makes
+  PackageManager.hasSystemFeature("android.software.freeform_window_management")
+  true, which is what WindowManagerService consults at boot for
+  mSupportsFreeformWindowManagement.
+-->
+<permissions>
+    <feature name="android.software.freeform_window_management" />
+</permissions>

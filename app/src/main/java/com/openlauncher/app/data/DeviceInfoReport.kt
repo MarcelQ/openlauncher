@@ -152,6 +152,31 @@ object DeviceInfoReport {
         else "ROOTED: " + foundPaths.joinToString()
 
     /**
+     * Values to write to the Settings.System keys that drive the SPD SystemUI
+     * floating app panel (docs/float-window-research.md: SpdStatusBarViewManager
+     * holds live ContentObservers on these keys, so writing them shows/hides the
+     * vendor's FloatButtonWindow/FloatSourceWindow overlays without a reboot —
+     * behavior reimplementation, no vendor code). Pure so it stays JVM-tested;
+     * the write itself lives in SettingsScreen behind the WRITE_SETTINGS gate.
+     * FLOAT_BUTTON_ABS_Y on the unit was -138 (parked off-screen), so enabling
+     * must also move the button on-screen or nothing appears.
+     */
+    fun vendorSidebarToggleValues(shortcutFloat: Int, sidebarApps: Int): Map<String, Int> {
+        val enabling = shortcutFloat != 1 && sidebarApps != 1
+        return if (enabling) mapOf(
+            "SETTINGS_SHORTCUT_FLOAT" to 1,
+            "SIDEBAR_APPS_FLOAT_BUTTON" to 1,
+            "FLOAT_BUTTON_ABS_X" to 40,
+            "FLOAT_BUTTON_ABS_Y" to 160,
+        ) else mapOf(
+            // Disabling leaves the position keys alone: a user who dragged the
+            // vendor button somewhere keeps that spot for the next enable.
+            "SETTINGS_SHORTCUT_FLOAT" to 0,
+            "SIDEBAR_APPS_FLOAT_BUTTON" to 0,
+        )
+    }
+
+    /**
      * `ApplicationExitInfo.reason` code -> readable label (API 30 post-mortem
      * probe in DeviceInfoCollector). Values mirror the framework constants,
      * duplicated here so the mapping stays JVM-testable; unknown codes fall
