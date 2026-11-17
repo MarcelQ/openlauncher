@@ -148,6 +148,7 @@ class DeviceInfoReportTest {
         assertTrue(DeviceInfoReport.appExitReasonName(4).startsWith("CRASH"))
         assertTrue(DeviceInfoReport.appExitReasonName(1).startsWith("exit-self"))
         assertEquals("ANR", DeviceInfoReport.appExitReasonName(6))
+        assertTrue(DeviceInfoReport.appExitReasonName(16).startsWith("package update"))
         assertEquals("code 42", DeviceInfoReport.appExitReasonName(42))
     }
 }

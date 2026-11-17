@@ -170,6 +170,9 @@ object DeviceInfoReport {
         8  -> "excessive resource usage"
         9  -> "user-requested (force stop)"
         10 -> "system update"
+        15 -> "dependency-killed (newer Android)"
+        16 -> "package update (killed by an APK replace)"
+        100 -> "other"
         else -> "code $code"
     }
 }

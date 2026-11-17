@@ -363,10 +363,10 @@ object DeviceInfoCollector {
                     line("  floatwindow main activity = $it")
                 }
                 fwPi.activities?.forEach {
-                    line("  floatwindow act ${it.name} exported=${it.exported}")
+                    line("  floatwindow act ${it.name} exported=${it.exported} perm=${it.permission ?: "none"}")
                 }
                 fwPi.receivers?.forEach {
-                    line("  floatwindow rcv ${it.name} exported=${it.exported}")
+                    line("  floatwindow rcv ${it.name} exported=${it.exported} perm=${it.permission ?: "none"}")
                 }
             }.onFailure { line("  floatwindow components: package not installed") }
             // API 30 public post-mortem: why did the vendor float-window process
@@ -385,9 +385,24 @@ object DeviceInfoCollector {
                             " pid=${e.pid} desc=${e.description ?: "-"}")
                     }
                 }.onFailure {
-                    line("  floatwindow exits: unreadable — grant Settings ▸ Apps ▸ special access ▸ " +
-                        "Usage access to Open Launcher, then recollect (was: ${it.javaClass.simpleName})")
+                    line("  floatwindow exits: not readable by a normal app (needs system privilege) " +
+                        "- even with Usage access, API 30 gates this behind a signature permission. " +
+                        "Was: ${it.javaClass.simpleName}")
                 }
+                // Own exit history needs no grant (the cross-app query above is
+                // blocked by a hard PACKAGE_USAGE_STATS signature check on API 30,
+                // even with Usage access granted). Cheap launcher-crash trail for
+                // future benches — shows why the launcher process restarted.
+                runCatching {
+                    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                    val own = am.getHistoricalProcessExitReasons(context.packageName, 0, 3)
+                    if (own.isEmpty()) line("  launcher exits (own): none recorded")
+                    own.forEach { e ->
+                        line("  launcher exit: ${DeviceInfoReport.appExitReasonName(e.reason)}" +
+                            " at ${SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(e.timestamp))}" +
+                            " desc=${e.description ?: "-"}")
+                    }
+                }.onFailure { line("  launcher exits (own): unavailable (${it.javaClass.simpleName}: ${it.message})") }
             }
             // Existence probe only — the app never executes su. Its presence
             // decides whether a root freeform launcher (su -c am start

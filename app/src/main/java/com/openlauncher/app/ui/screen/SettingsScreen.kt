@@ -1378,6 +1378,34 @@ fun SettingsScreen(
                     }
                 }
             )
+            // Second probe: the vendor app's exported receivers are how the stock
+            // SPD system bar toggles its floating windows. With the action strings
+            // still unknown, an explicit null-action broadcast at least tells us
+            // whether the receiver has an unconditional default branch.
+            SettingsButton(
+                label = "Probe Vendor Float-Window Receiver",
+                sublabel = "Dev probe: sends one explicit null-action broadcast to " +
+                    "com.spd.floatwindow's WindowBroadcastReceiver and reports what the " +
+                    "ROM accepted. Watch the screen for a floating window or sidebar.",
+                icon = Icons.Default.OpenInNew,
+                accent = accent,
+                onClick = {
+                    val sent = try {
+                        context.sendBroadcast(
+                            Intent().setComponent(
+                                ComponentName(
+                                    "com.spd.floatwindow",
+                                    "com.spd.floatwindow.receiver.WindowBroadcastReceiver"
+                                )
+                            )
+                        )
+                        "broadcast accepted by the ROM — no exception"
+                    } catch (t: Throwable) {
+                        "refused: ${t.javaClass.simpleName}"
+                    }
+                    Toast.makeText(context, sent, Toast.LENGTH_LONG).show()
+                }
+            )
         }
 
         Spacer(Modifier.height(32.dp))
