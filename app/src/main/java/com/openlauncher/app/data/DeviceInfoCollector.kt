@@ -56,6 +56,12 @@ object DeviceInfoCollector {
         section("App") {
             field("package") { context.packageName }
             field("version") { "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) ${BuildConfig.GIT_SHA}" }
+            // 1000 = android.uid.system shared UID (only reachable by the
+            // aospDebug platform-signed experiment build; proves key match).
+            field("process uid") {
+                val uid = android.system.Os.getuid()
+                if (uid == 1000) "1000 (android.uid.system — SHARED SYSTEM UID ACTIVE)" else "$uid"
+            }
             field("installed") {
                 val pi = context.packageManager.getPackageInfo(context.packageName, 0)
                 "first ${date(pi.firstInstallTime)}, last update ${date(pi.lastUpdateTime)}"

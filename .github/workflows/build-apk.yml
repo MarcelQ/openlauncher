@@ -41,6 +41,18 @@ jobs:
             echo "::warning::DEBUG_KEYSTORE_B64 secret not set - APK signed with throwaway runner key; updates will not install over older builds"
           fi
 
+      - name: Decode AOSP test-key keystore (privileged experiment build)
+        env:
+          AOSP_PLATFORM_KEYSTORE_B64: ${{ secrets.AOSP_PLATFORM_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$AOSP_PLATFORM_KEYSTORE_B64" ]; then
+            mkdir -p keystore
+            printf '%s' "$AOSP_PLATFORM_KEYSTORE_B64" | base64 -d > keystore/platform.jks
+            echo "platform.jks restored (public AOSP testkey - aospDebug experiment builds)"
+          else
+            echo "::warning::AOSP_PLATFORM_KEYSTORE_B64 secret not set - aospDebug APK will carry the debug key and cannot install as android.uid.system"
+          fi
+
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
@@ -52,6 +64,10 @@ jobs:
 
       - name: Unit tests + debug APK
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Privileged experiment APK (aospDebug, AOSP testkey)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        run: ./gradlew --no-daemon :app:assembleAospDebug
 
       - name: Upload unit-test report
         if: ${{ !cancelled() }}
@@ -90,4 +106,24 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "$TAG (rolling)" --notes "$NOTES"
           gh release edit "$TAG" --target "$GITHUB_SHA" --prerelease --title "$TAG (rolling)" --notes "$NOTES"
+          gh release upload "$TAG" "$ASSET" --clobber
+
+      - name: Publish aospDebug experiment APK (rolling, dev pushes only)
+        # Separate applicationId (com.openlauncher.app.aosp) and signing key, so it
+        # must NEVER be offered through the in-app updater (signature mismatch).
+        # Direct download onto the head unit browser only.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=aosp-test-latest
+          ASSET=openlauncher-aosp-test-debug.apk
+          DESC="PRIVILEGED EXPERIMENT build, not the normal app. Signed with the public AOSP test key and requests sharedUserId=android.uid.system (uid 1000): the answer this build exists to collect is whether a ROM signed with that same test key ACCEPTS the install. ApplicationId is com.openlauncher.app.aosp - it installs ALONGSIDE the normal Open Launcher, uninstall it any time. If the install fails with a signature/shared-user error, the ROM does not use the AOSP test key. Used to test freeform windows / in-card app embedding on SPD head units. Not reachable from the in-app updater."
+          VER_LINE=$(./gradlew -q printVersionInfo)
+          NOTES="$DESC
+          $VER_LINE commit=$GITHUB_SHA"
+          cp app/build/outputs/apk/aospDebug/app-aospDebug.apk "$ASSET"
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "$TAG (rolling experiment)" --notes "$NOTES"
+          gh release edit "$TAG" --target "$GITHUB_SHA" --prerelease --title "$TAG (rolling experiment)" --notes "$NOTES"
           gh release upload "$TAG" "$ASSET" --clobber

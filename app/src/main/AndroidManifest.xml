@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<!-- sharedUserId is a build-type placeholder: empty for normal debug/release
+     builds, "android.uid.system" only for the aospDebug privileged experiment
+     (see app/build.gradle.kts). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sharedUserId="${sharedUserId}">
 
     <!-- Network for weather API -->
     <uses-permission android:name="android.permission.INTERNET" />

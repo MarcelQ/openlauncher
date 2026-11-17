@@ -27,6 +27,9 @@ android {
         versionCode    = 6
         versionName    = "0.0.5"
         buildConfigField("String", "GIT_SHA", "\"${gitShortSha()}\"")
+        // android:sharedUserId placeholder in AndroidManifest.xml; empty unless a
+        // build type deliberately runs the app in a shared system UID (aospDebug).
+        manifestPlaceholders["sharedUserId"] = ""
     }
 
     // Shared debug signing key. The SAME keystore is used by CI (decoded from the
@@ -50,11 +53,47 @@ android {
         }
     }
 
+    // AOSP public test-key signing — PRIVILEGED EXPERIMENT build type (aospDebug),
+    // used to find out whether the SPD "trinket" head unit's ROM is signed with the
+    // public AOSP test keys (very common on Chinese QCM reference-board builds).
+    // If an android.uid.system + test-key APK installs there, the launcher gets
+    // uid 1000: hidden-API access (ActivityOptions.setLaunchWindowingMode) and
+    // ACTIVITY_EMBEDDING (in-card app embedding, the Car Nebula UX) unlock.
+    // keystore/platform.jks is regenerated from the public AOSP testkey material
+    // (build/target/product/security/platform.{pk8,x509.pem} on the AOSP mirror);
+    // alias "platform", passwords "android". gitignored, like debug.keystore;
+    // CI restores it from the AOSP_PLATFORM_KEYSTORE_B64 Actions secret.
+    val aospPlatformKeystore = rootProject.file("keystore/platform.jks")
+    if (aospPlatformKeystore.exists()) {
+        signingConfigs {
+            create("aospPlatform") {
+                storeFile     = aospPlatformKeystore
+                storePassword = "android"
+                keyAlias      = "platform"
+                keyPassword   = "android"
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // Default signing config for normal device testing (restores app visibility)
             if (sharedDebugKeystore.exists()) {
                 signingConfig = signingConfigs.getByName("sharedDebug")
+            }
+        }
+        // Bench experiment for the freeform/APP OVERLAY question on the head unit.
+        // Different applicationId (.aosp suffix) so it COEXISTS with the normal
+        // debug launcher — no uninstall, and uninstalling it later is trivial.
+        // If the platform key does not match the ROM, the install simply fails
+        // with INSTALL_FAILED_SHARED_USER_INCOMPATIBLE: that IS the answer.
+        create("aospDebug") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".aosp"
+            versionNameSuffix   = "-aosp"
+            manifestPlaceholders["sharedUserId"] = "android.uid.system"
+            if (aospPlatformKeystore.exists()) {
+                signingConfig = signingConfigs.getByName("aospPlatform")
             }
         }
         release {

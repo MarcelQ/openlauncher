@@ -75,6 +75,25 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   the secret (`gh secret set DEBUG_KEYSTORE_B64 --repo MarcelQ/openlauncher`). Never commit it.
   Devices still running an APK signed with an older throwaway debug key need ONE manual uninstall
   before a shared-key build installs.
+- **Privileged experiment build (`aospDebug` build type, added 2026-11-17)**: for head units whose
+  ROM silently downgrades freeform launch requests to fullscreen (the real SPD unit does, even with
+  `enable_freeform_support`/`force_resizable_activities` = 1 and a reboot — the vendor fork strips
+  the check for normal apps). The `android:sharedUserId` in `AndroidManifest.xml` is a placeholder:
+  empty in debug/release, `android.uid.system` only in `aospDebug` (applicationId
+  `com.openlauncher.app.aosp`, coexists with the normal app, no uninstall needed). Signed with the
+  **public AOSP testkey** via `keystore\platform.jks` (alias `platform`, store/key passwords
+  `android`; gitignored; CI restores it from Actions secret `AOSP_PLATFORM_KEYSTORE_B64`; recreate
+  from the public testkey files `build/target/product/security/platform.{pk8,x509.pem}` on the
+  aosp-mirror `platform_build` repo: DER PKCS8 + PEM cert → JKS via keytool/JDK, NEVER from
+  `reference\car-nebula-decompiled`). CI publishes rolling prerelease `aosp-test-latest`
+  (asset `openlauncher-aosp-test-debug.apk`) on dev pushes; the in-app updater must never offer this
+  channel (signature mismatch with the normal app). Reading of the experiment: install SUCCEEDS =
+  the ROM platform is signed with the public AOSP testkey → launcher runs as uid 1000, hidden-API
+  `setLaunchWindowingMode` and `ACTIVITY_EMBEDDING` become available; install fails with
+  `INSTALL_FAILED_SHARED_USER_INCOMPATIBLE` = ROM uses a private key, this path is closed.
+  The Settings ▸ Diagnostics report's `process uid` line confirms uid 1000 without adb.
+  (AVD caveat: the API 37 Google-Play AVD rejects this APK exactly with that error — its system
+  uses Google keys — which is the expected negative control, not a bug.)
 - **In-app updater** (Settings ▸ Updates, `data\UpdateChecker.kt` + `data\ApkDownloader.kt`): polls
   `api.github.com/repos/MarcelQ/openlauncher/releases/tags/<dev-latest|main-latest>` and offers the
   channel's APK (user picks dev or main; debug builds default to dev). Requires the CI release NOTES
