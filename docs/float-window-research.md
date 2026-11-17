@@ -136,3 +136,24 @@ Root is realistic because the bootloader is already unlocked and the build is de
   (works as designed on ROMs that keep AOSP freeform; degrades to fullscreen elsewhere).
 - Diagnostics freeform probe now identifies float-window owners (`appFloatOwnerSummary`).
 - SAF pickers guarded (unit has no DocumentsUI; unguarded taps crash the launcher — fixed).
+- Vendor float sidebar toggle shipped in Diagnostics (branch `dev`) for the next bench session.
+
+## Option C prototype — BUILT and AVD-proven (branch `exp-mapcard`, 2026-11-18)
+`MAP_NATIVE` card (widget-library entry "MAP (LIVE)", first instance defaults to 2×2):
+- osmdroid 6.1.20 (Apache-2, no API key, inline Gradle dep) + OSM MAPNIK tiles with an
+  honest User-Agent (tile etiquette); tile cache = offline-friendly; edit mode never
+  instantiates the MapView (no tile traffic, no touch fights with resize handles).
+- Live GPS marker via the existing `LauncherViewModel.location` StateFlow; first fix frames
+  the view (accuracy-tiered zoom, pure `MapCardLogic.initialZoomFor` + JVM tests
+  `MapCardLogicTest`), later fixes only move the marker so driver pan/zoom survives.
+- NAVIGATE chip = standard `geo:` handoff (AVD-verified: Google Maps MapsActivity opened);
+  RECENTRE chip re-frames; `geo:` resolves on the AVD and is understood by every maps app.
+- Card body is ONE native view subtree (FrameLayout > MapView + TextView chips): the classic
+  Compose `AndroidView` compositing path draws the view subtree OVER sibling Compose
+  overlays, which mis-placed Compose-rendered chips (screenshot bug 2026-11-18 00:47);
+  native chips fix it on all API levels (InteropView interop needs 29+, our floor is 21).
+  Chips are plain DeviceDefault-safe TextViews, not Material Buttons (launcher Activity
+  theme is not MaterialComponents → Button inflation would crash).
+- AVD-verified: tiles, marker, lat/lon line, chips placed, NAVIGATE→Maps. Head-unit GPU
+  cost and real GPS NOT verified yet (AVD only). Not merged to `dev` — owner review first;
+  CI builds it as an `apk-exp-mapcard-<sha>` workflow artifact.

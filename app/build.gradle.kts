@@ -162,6 +162,9 @@ dependencies {
 
     // JSON serialization
     implementation("com.google.code.gson:gson:2.13.1")
+    // exp-mapcard prototype (2026-11-18): live OSM map card. Apache-2.0, no API
+    // key, minSdk-compatible; tiles need network but cache offline-first.
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
 
     // USB host serial for the TPMS receiver (FTDI / CH34x / CP210x / CDC-ACM). MIT licensed.
     implementation("com.github.mik3y:usb-serial-for-android:3.11.0")

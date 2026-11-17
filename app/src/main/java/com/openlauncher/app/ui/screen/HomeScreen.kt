@@ -93,7 +93,8 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("VOLUME",      "VOLUME",      Icons.Default.VolumeUp,      "Media volume control"),
     WidgetTypeInfo("BRIGHTNESS",  "BRIGHTNESS",  Icons.Default.WbSunny,       "Screen brightness presets"),
     WidgetTypeInfo("TPMS",        "TIRE PRESSURE", Icons.Default.Usb,         "Tyre pressure (USB receiver)"),
-    WidgetTypeInfo("PIP_APP",     "APP OVERLAY",   Icons.Default.PictureInPictureAlt, "App in a floating window over the launcher")
+    WidgetTypeInfo("PIP_APP",     "APP OVERLAY",   Icons.Default.PictureInPictureAlt, "App in a floating window over the launcher"),
+    WidgetTypeInfo("MAP_NATIVE",  "MAP (LIVE)",    Icons.Default.Map,         "Interactive map (OSM) inside the card")
 )
 
 /** True when a new 1×1 card could land on [pageIndex] — free cell, or room freed by shrinking. */
@@ -124,6 +125,7 @@ private fun cardLabel(type: String): String = when (type) {
     "SOUNDBOARD"  -> "SOUND"
     "TPMS"        -> "TIRE PRESSURE"
     "PIP_APP"     -> "APP OVERLAY"
+    "MAP_NATIVE"  -> "MAP (LIVE)"
     else          -> type
 }
 
@@ -693,6 +695,13 @@ private fun WidgetPageGrid(
                         isEditing   = editMode,
                         onAssign    = onAssignPip,
                         modifier    = Modifier.fillMaxSize()
+                    )
+                    "MAP_NATIVE" -> MapNativeWidget(
+                        location  = location,
+                        accent    = accent,
+                        isDayMode = isDayMode,
+                        isEditing = editMode,
+                        modifier  = Modifier.fillMaxSize()
                     )
                 }
 
