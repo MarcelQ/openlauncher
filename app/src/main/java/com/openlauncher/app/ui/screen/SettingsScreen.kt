@@ -1332,7 +1332,8 @@ fun SettingsScreen(
                 sublabel = "Android & SoC build info · screen size/dpi/diagonal · RAM & storage · sensor list · " +
                     "input devices (steering-wheel controllers) · audio config · szchoiceway/MCU radio backend · " +
                     "Settings.Global keys · USB devices · battery · launcher permission state · " +
-                    "APP OVERLAY freeform probe (feature flag, enabler, root, last launch attempts) · installed packages. " +
+                    "APP OVERLAY freeform probe (feature flag, enabler, vendor float-window app " +
+                    "components, root, last launch attempts) · installed packages. " +
                     "No serials or accounts, but still review it before sharing.",
                 icon = Icons.Default.Info
             ) {}

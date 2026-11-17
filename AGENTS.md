@@ -95,6 +95,14 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   the ROM platform is signed with the public AOSP testkey → launcher runs as uid 1000, hidden-API
   `setLaunchWindowingMode` and `ACTIVITY_EMBEDDING` become available; install fails with
   `INSTALL_FAILED_SHARED_USER_INCOMPATIBLE` = ROM uses a private key, this path is closed.
+  **VERDICT on the dev's SPD trinket unit (2026-11-17): install via the unit's browser failed with
+  "App not installed" → private key → the privileged path is CLOSED on this unit** (the release and
+  build type stay for other QCM units that may use the public testkey; do not re-litigate this
+  unit). Follow-up probe shipped instead: Diagnostics now enumerates the vendor float-window stack
+  (`com.spd.floatwindow` activities/receivers + exported flags + main activity) — if the unit's
+  report shows exported entry points, the next step is handing Maps to the ROM's OWN floating-
+  window feature; failing that, a native map card (osmdroid/OSM tiles + deep-link handoff to
+  Maps/Waze) is the ROM-independent fallback.
   The Settings ▸ Diagnostics report's `process uid` line confirms uid 1000 without adb.
   (AVD caveat: the API 37 Google-Play AVD rejects this APK exactly with that error — its system
   uses Google keys — which is the expected negative control, not a bug.)

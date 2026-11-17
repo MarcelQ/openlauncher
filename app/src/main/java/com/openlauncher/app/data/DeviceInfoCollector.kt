@@ -342,6 +342,25 @@ object DeviceInfoCollector {
                     "installed, v${pm.getPackageInfo("com.spd.floatwindow", 0).versionName}"
                 }.getOrDefault("not installed")
             }
+            // Component surface of the vendor floating-window stack: if it exposes
+            // an exported activity/receiver, the launcher can hand an app (Maps) to
+            // the ROM's OWN windowing feature - no freeform support or platform
+            // signature needed. Enumeration only; nothing is launched from here.
+            runCatching {
+                val fwPkg = "com.spd.floatwindow"
+                val fwPi = pm.getPackageInfo(
+                    fwPkg, PackageManager.GET_ACTIVITIES or PackageManager.GET_RECEIVERS
+                )
+                pm.getLaunchIntentForPackage(fwPkg)?.component?.let {
+                    line("  floatwindow main activity = $it")
+                }
+                fwPi.activities?.forEach {
+                    line("  floatwindow act ${it.name} exported=${it.exported}")
+                }
+                fwPi.receivers?.forEach {
+                    line("  floatwindow rcv ${it.name} exported=${it.exported}")
+                }
+            }.onFailure { line("  floatwindow components: package not installed") }
             // Existence probe only — the app never executes su. Its presence
             // decides whether a root freeform launcher (su -c am start
             // --windowingMode 5 …) could be added as an extra chain rung.
