@@ -125,7 +125,8 @@ Root is realistic because the bootloader is already unlocked and the build is de
    `kill $(pidof com.android.systemui)`; confirm behavior, screenshot, then set keys back to 0).
 3. `pm path com.spd.media` → pull `MediaService.apk` → check `SETTING_LRC_FLOAT_WINDOW_MODE`
    owner (lyrics float window = the only other known vendor true-float feature; see if it
-   exposes an interop surface).
+   exposes an interop surface). Also pull `com.carletter.car` (`/spd/app/CarLetter`) to check
+   whether the CarPlay app exposes any launch/embed surface before settling for plain handoff.
 4. Freeform root experiment (`tools/freeform-root-experiment/README.md`), one step at a time,
    boot image dumped before any flash.
 5. After any freeform success: launch APP OVERLAY card → `dumpsys window windows | grep -i freeform`
