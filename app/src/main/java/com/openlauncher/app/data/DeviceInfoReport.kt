@@ -117,7 +117,7 @@ object DeviceInfoReport {
         featureDeclared ->
             "ROM declares the feature; enabler unset/off (feature alone should suffice)"
         enabler == "1" ->
-            "ENABLER ON but no feature flag — API≤30 AOSP still honors freeform, try the card"
+            "ENABLER ON but no feature flag — API≤30 AOSP still honors freeform, try the card (framework caches this at boot: REBOOT once after enabling before testing)"
         enabler == "0" ->
             "OFF — enabler explicitly set to 0; `adb shell settings put global enable_freeform_support 1`"
         else ->
