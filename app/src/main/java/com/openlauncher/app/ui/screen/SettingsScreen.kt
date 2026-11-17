@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.ComponentName
 import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
@@ -1346,6 +1347,31 @@ fun SettingsScreen(
                 },
                 icon = Icons.Default.Article
             ) {}
+            // Dev probe: SPD-style ROMs ship their own floating-window app with an
+            // EXPORTED MainActivity but no MAIN/LAUNCHER entry, so it is invisible
+            // in every app drawer. Launching the component directly lets us see
+            // whether the ROM's native float-window feature can host apps (Maps)
+            // over the launcher — the fallback path when freeform is stripped.
+            SettingsButton(
+                label = "Open Vendor Float-Window App",
+                sublabel = "Dev probe: launches com.spd.floatwindow's exported main activity directly " +
+                    "(it has no app icon). If its UI shows apps as floating windows, that vendor " +
+                    "feature becomes the APP OVERLAY path on this ROM. No-op on ROMs without it.",
+                icon = Icons.Default.OpenInNew,
+                accent = accent,
+                onClick = {
+                    try {
+                        context.startActivity(
+                            Intent().setComponent(
+                                ComponentName("com.spd.floatwindow", "com.spd.floatwindow.MainActivity")
+                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } catch (t: Throwable) {
+                        Toast.makeText(context, "Vendor float-window launch failed: " +
+                            "${t.javaClass.simpleName}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            )
         }
 
         Spacer(Modifier.height(32.dp))

@@ -99,10 +99,18 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   "App not installed" → private key → the privileged path is CLOSED on this unit** (the release and
   build type stay for other QCM units that may use the public testkey; do not re-litigate this
   unit). Follow-up probe shipped instead: Diagnostics now enumerates the vendor float-window stack
-  (`com.spd.floatwindow` activities/receivers + exported flags + main activity) — if the unit's
-  report shows exported entry points, the next step is handing Maps to the ROM's OWN floating-
-  window feature; failing that, a native map card (osmdroid/OSM tiles + deep-link handoff to
-  Maps/Waze) is the ROM-independent fallback.
+  (`com.spd.floatwindow` activities/receivers + exported flags + main activity). **FINDINGS from the
+  unit's 2026-11-17 22:15 report: `com.spd.floatwindow` v11 has ONE exported MainActivity with no
+  MAIN/LAUNCHER filter (invisible in app drawers; `getLaunchIntentForPackage` null) and three
+  exported receivers (WindowBroadcastReceiver, BluetoothPairBroadcastReceiver,
+  LocalChangeBroadcastReceiver — action strings unknown).** Settings.System keys
+  `FLOAT_BUTTON_ABS_X/Y`, `SETTINGS_SHORTCUT_FLOAT`, `SIDEBAR_APPS_FLOAT_BUTTON`,
+  `SETTING_LRC_FLOAT_WINDOW_MODE` suggest the feature is a draggable on-screen button opening a
+  float-window UI. Next rung implemented: Diagnostics ▸ "Open Vendor Float-Window App" dev button
+  launches the MainActivity by explicit component (AVD: ActivityNotFoundException toast, launcher
+  survives); the user's observation of that UI (can it float Maps?) decides whether to integrate it
+  as the APP OVERLAY path. If it fails, fall back to a native map card (osmdroid/OSM tiles +
+  deep-link handoff to Maps/Waze). Freeform itself stays dead on this ROM (see verdict above).
   The Settings ▸ Diagnostics report's `process uid` line confirms uid 1000 without adb.
   (AVD caveat: the API 37 Google-Play AVD rejects this APK exactly with that error — its system
   uses Google keys — which is the expected negative control, not a bug.)
