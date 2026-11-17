@@ -157,4 +157,4 @@ Root is realistic because the bootloader is already unlocked and the build is de
   theme is not MaterialComponents → Button inflation would crash).
 - AVD-verified: tiles, marker, lat/lon line, chips placed, NAVIGATE→Maps. Head-unit GPU
   cost and real GPS NOT verified yet (AVD only). Not merged to `dev` — owner review first;
-  CI builds it as an `apk-exp-mapcard-<sha>` workflow artifact.
+  CI only builds dev/main pushes + PRs, so review happens on draft PR #1 (artifact from that run).
