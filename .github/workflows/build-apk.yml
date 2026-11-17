@@ -118,7 +118,7 @@ jobs:
         run: |
           TAG=aosp-test-latest
           ASSET=openlauncher-aosp-test-debug.apk
-          DESC="PRIVILEGED EXPERIMENT build, not the normal app. Signed with the public AOSP test key and requests sharedUserId=android.uid.system (uid 1000): the answer this build exists to collect is whether a ROM signed with that same test key ACCEPTS the install. ApplicationId is com.openlauncher.app.aosp - it installs ALONGSIDE the normal Open Launcher, uninstall it any time. If the install fails with a signature/shared-user error, the ROM does not use the AOSP test key. Used to test freeform windows / in-card app embedding on SPD head units. Not reachable from the in-app updater."
+          DESC="PRIVILEGED EXPERIMENT build, not the normal app. Signed with the public AOSP test key and requests sharedUserId=android.uid.system (uid 1000): the answer this build exists to collect is whether a ROM signed with that same test key ACCEPTS the install. ApplicationId is com.openlauncher.app.aosp and it appears in the app drawer as OPEN LAUNCHER AOSP-TEST - it installs ALONGSIDE the normal Open Launcher, is NOT a home candidate, and can be uninstalled any time. If the install fails with a signature/shared-user error, the ROM does not use the AOSP test key. Used to test freeform windows / in-card app embedding on SPD head units. Not reachable from the in-app updater."
           VER_LINE=$(./gradlew -q printVersionInfo)
           NOTES="$DESC
           $VER_LINE commit=$GITHUB_SHA"

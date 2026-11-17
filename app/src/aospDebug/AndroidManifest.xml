@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- aospDebug overlay (manifest merger): the privileged EXPERIMENT build must be
+     a normal drawer-launchable app, not a home candidate. SPD head-unit app
+     drawers hide apps that declare CATEGORY_HOME, and two identically-named
+     launchers on one unit is a usability trap. So this build type removes the
+     HOME role from MainActivity and carries a distinct label. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:label="Open Launcher AOSP-TEST"
+        tools:replace="android:label">
+
+        <activity android:name=".MainActivity">
+            <!-- removeAll: intent-filters only pair with lower-priority ones of
+                 byte-identical content, so partial matching can't drop HOME.
+                 Clear the activity's filters (HOME launcher + TPMS-USB stick
+                 auto-launch — neither is needed by the bench experiment) and
+                 re-add a plain app icon filter. -->
+            <intent-filter tools:node="removeAll" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

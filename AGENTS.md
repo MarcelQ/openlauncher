@@ -80,7 +80,11 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   `enable_freeform_support`/`force_resizable_activities` = 1 and a reboot — the vendor fork strips
   the check for normal apps). The `android:sharedUserId` in `AndroidManifest.xml` is a placeholder:
   empty in debug/release, `android.uid.system` only in `aospDebug` (applicationId
-  `com.openlauncher.app.aosp`, coexists with the normal app, no uninstall needed). Signed with the
+  `com.openlauncher.app.aosp`, coexists with the normal app, no uninstall needed; the
+  `src\aospDebug\AndroidManifest.xml` merger overlay strips its HOME/USB intent-filters
+  (`tools:node="removeAll"`) and renames it "Open Launcher AOSP-TEST" so it is a plain
+  drawer-launchable app — SPD launchers hide HOME apps and two identically-named launchers
+  confused the 2026-11-17 test). Signed with the
   **public AOSP testkey** via `keystore\platform.jks` (alias `platform`, store/key passwords
   `android`; gitignored; CI restores it from Actions secret `AOSP_PLATFORM_KEYSTORE_B64`; recreate
   from the public testkey files `build/target/product/security/platform.{pk8,x509.pem}` on the
