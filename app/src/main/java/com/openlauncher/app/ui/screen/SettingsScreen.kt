@@ -1361,10 +1361,16 @@ fun SettingsScreen(
                 accent = accent,
                 onClick = {
                     try {
+                        // ACTION_MAIN + explicit component: a null action can land in
+                        // the vendor activity's "nothing to do -> finish()" branch
+                        // (the raw component launch of 2026-11-17 opened and closed
+                        // at once on the unit).
                         context.startActivity(
-                            Intent().setComponent(
-                                ComponentName("com.spd.floatwindow", "com.spd.floatwindow.MainActivity")
-                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            Intent(Intent.ACTION_MAIN)
+                                .setComponent(
+                                    ComponentName("com.spd.floatwindow", "com.spd.floatwindow.MainActivity")
+                                )
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         )
                     } catch (t: Throwable) {
                         Toast.makeText(context, "Vendor float-window launch failed: " +

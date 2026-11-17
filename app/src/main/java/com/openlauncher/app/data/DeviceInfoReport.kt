@@ -150,4 +150,26 @@ object DeviceInfoReport {
     fun suSummary(foundPaths: List<String>): String =
         if (foundPaths.isEmpty()) "no su binaries found (not rooted)"
         else "ROOTED: " + foundPaths.joinToString()
+
+    /**
+     * `ApplicationExitInfo.reason` code -> readable label (API 30 post-mortem
+     * probe in DeviceInfoCollector). Values mirror the framework constants,
+     * duplicated here so the mapping stays JVM-testable; unknown codes fall
+     * back to "code N" so newer ROMs degrade gracefully. CRASH/ANR is the
+     * answer to "opens for a second then bounces back" on ROMs that hide
+     * crash dialogs (`Settings.Global/hide_error_dialogs`).
+     */
+    fun appExitReasonName(code: Int): String = when (code) {
+        1  -> "exit-self (app finished itself — normal for control-panel activities)"
+        2  -> "signaled"
+        3  -> "low-memory (lmk)"
+        4  -> "CRASH — java exception"
+        5  -> "CRASH_NATIVE"
+        6  -> "ANR"
+        7  -> "INITIALIZING — died before fully starting"
+        8  -> "excessive resource usage"
+        9  -> "user-requested (force stop)"
+        10 -> "system update"
+        else -> "code $code"
+    }
 }

@@ -141,4 +141,13 @@ class DeviceInfoReportTest {
         // Candidate list must stay existence-probe-only paths, never executed.
         assertTrue(DeviceInfoReport.suCandidatePaths.all { it.startsWith("/") })
     }
+
+    @Test
+    fun `app exit reason maps framework codes and degrades gracefully`() {
+        // Values mirror ApplicationExitInfo.REASON_* (API 30).
+        assertTrue(DeviceInfoReport.appExitReasonName(4).startsWith("CRASH"))
+        assertTrue(DeviceInfoReport.appExitReasonName(1).startsWith("exit-self"))
+        assertEquals("ANR", DeviceInfoReport.appExitReasonName(6))
+        assertEquals("code 42", DeviceInfoReport.appExitReasonName(42))
+    }
 }

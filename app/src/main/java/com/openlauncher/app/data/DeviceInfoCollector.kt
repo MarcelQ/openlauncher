@@ -317,6 +317,14 @@ object DeviceInfoCollector {
                 Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
                     ?.contains(context.packageName) == true
             }
+            field("usage access (enables crash post-mortems of other apps)") {
+                val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+                val now = System.currentTimeMillis()
+                runCatching {
+                    usm.queryUsageStats(android.app.usage.UsageStatsManager.INTERVAL_DAILY, now - 86_400_000L, now)
+                    "granted"
+                }.getOrElse { "not granted" }
+            }
         }
 
         section("APP OVERLAY freeform probe (PIP diagnostics)") {
@@ -361,6 +369,26 @@ object DeviceInfoCollector {
                     line("  floatwindow rcv ${it.name} exported=${it.exported}")
                 }
             }.onFailure { line("  floatwindow components: package not installed") }
+            // API 30 public post-mortem: why did the vendor float-window process
+            // exit right after our dev-button launch? "Opens for a second then
+            // bounces back" = exit-self (control-panel activity) vs CRASH - and
+            // this ROM family hides crash dialogs (hide_error_dialogs=1).
+            // Needs the Usage-access grant; guarded where the ROM denies it.
+            if (Build.VERSION.SDK_INT >= 30) {
+                runCatching {
+                    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                    val exits = am.getHistoricalProcessExitReasons("com.spd.floatwindow", 0, 5)
+                    if (exits.isEmpty()) line("  floatwindow exits: none recorded (process never ran?)")
+                    exits.forEach { e ->
+                        line("  floatwindow exit: ${DeviceInfoReport.appExitReasonName(e.reason)}" +
+                            " at ${SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(e.timestamp))}" +
+                            " pid=${e.pid} desc=${e.description ?: "-"}")
+                    }
+                }.onFailure {
+                    line("  floatwindow exits: unreadable — grant Settings ▸ Apps ▸ special access ▸ " +
+                        "Usage access to Open Launcher, then recollect (was: ${it.javaClass.simpleName})")
+                }
+            }
             // Existence probe only — the app never executes su. Its presence
             // decides whether a root freeform launcher (su -c am start
             // --windowingMode 5 …) could be added as an extra chain rung.
