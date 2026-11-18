@@ -1,0 +1,166 @@
+/*
+ * Visual twin of the launcher's tyre card (ui/widget/TpmsWidget.kt). The colour values below are
+ * the night-mode pair from that file, copied deliberately so the phone page and the dash card
+ * agree at a glance: same card surface, same alarm/warn/link colours, monospace numerals,
+ * hairline borders, letterspaced uppercase labels. --accent is replaced per request with the
+ * user's chosen launcher accent (TpmsWebReport.fillPageTokens), so the page IS the dash's palette.
+ *
+ * Separate stylesheet (not inline) so the server's Content-Security-Policy can stay strict:
+ * no 'unsafe-inline' anywhere, which is what stops a captured portal or a man-in-the-middle on a
+ * shared network from injecting behaviour into a page that shows safety data.
+ *
+ * Typeface: the launcher bundles JetBrains Mono (res/font). Rather than shipping a second copy of
+ * the ttf, the page asks for it by name first — a device with the font installed gets an exact
+ * match, everyone else gets the platform monospace, which still gives the tabular-numeral look
+ * the card relies on for pressure digits.
+ */
+:root {
+  --accent:      __ACCENT__;
+  --surface:     #141414;   /* CardSurface  */
+  --page:        #000000;
+  --divider:     #2A2A2A;   /* DividerGray  */
+  --muted:       #888888;   /* TextMuted    */
+  --content:     #FFFFFF;
+  --dim:         rgba(255, 255, 255, 0.38);
+  --alarm:       #FF5A4D;   /* TpmsWidget night alarm  */
+  --warn:        #FFC145;   /* TpmsWidget night warn   */
+  --link:        #4ADE80;   /* TpmsWidget night link OK */
+  --tile-border: rgba(255, 255, 255, 0.12);
+  --scale: 1;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+
+body {
+  background: var(--page);
+  color: var(--content);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: max(10px, env(safe-area-inset-top)) 12px max(10px, env(safe-area-inset-bottom));
+  gap: 8px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex: none;
+}
+header .brand { color: var(--content); white-space: nowrap; }
+header .title { text-align: right; }
+
+#banner {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--warn);
+  border: 1px solid var(--divider);
+  border-radius: 3px;
+  padding: 7px 8px;
+}
+#banner.hidden { display: none; }
+
+.grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 1fr;
+  gap: 6px;
+  min-height: 0;
+}
+/* A fifth (spare) sensor spans the full width as a short row, like the card's spare line. */
+.grid.has-spare { grid-template-rows: 1fr 1fr auto; }
+.tile.spare { grid-column: 1 / -1; }
+
+.tile {
+  border: 1px solid var(--tile-border);
+  border-radius: 3px;
+  background: transparent;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 62px;
+  text-align: center;
+}
+.tile .pos {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+}
+.tile .value {
+  font-size: calc(34px * var(--scale));
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tile .unit { font-size: 9px; color: rgba(255, 255, 255, 0.6); }
+.tile .sub  { font-size: 13px; color: rgba(255, 255, 255, 0.6); white-space: nowrap; }
+
+/* Mirrors TpmsWheelTile's colour decision exactly: no reading or a stale reading dims, an alarm
+   turns red, a sensor with no signal goes amber, everything else uses the accent. */
+.tile.dimmed .value, .tile.dimmed .sub { color: var(--dim); }
+.tile.dimmed .pos { color: rgba(255, 255, 255, 0.25); }
+.tile.nosignal .value { color: var(--warn); }
+.tile.alarm {
+  border-color: var(--alarm);
+  background: rgba(255, 90, 77, 0.10);
+}
+.tile.alarm .value { color: var(--alarm); }
+.tile.alarm.pulsing { animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+
+/* Whole wheel area dims to a third when the receiver link is down — last-known pressures must
+   never look live, on the dash or on the phone. A warned wheel stays bright, because dimming a
+   safety warning is never the right answer. */
+.grid.link-down { opacity: 0.35; }
+.grid.link-down.alarm-kept { opacity: 1; }
+
+footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  border-top: 1px solid var(--divider);
+  padding-top: 8px;
+}
+.linkrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.linkrow svg { width: 14px; height: 14px; flex: none; }
+.link-ok   { color: var(--link); }
+.link-idle { color: var(--warn); }
+.link-bad  { color: var(--alarm); }
+.link-off  { color: var(--dim); }
+
+#check {
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--alarm);
+  font-size: 11px;
+}
+#check.hidden { display: none; }
+#age { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tile.alarm.pulsing { animation: none; }
+}

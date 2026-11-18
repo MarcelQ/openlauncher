@@ -31,6 +31,17 @@ Verdicts on the two "borrow the ROM's mechanism" hopes:
   keys makes SystemUI show/hide its floating button + 9-app panel live. But its model is
   *floating shortcut panel + fullscreen handoff*, exactly the design already sketched
   below; it never hosts another app's UI.
+- **2026-11-18 unit correction (in-app test):** the FIRST Diagnostics toggle wrote the keys
+  directly — the SPD unit **refuses** custom Settings.System keys from third-party apps too
+  (`IllegalArgumentException` ×4, guard kept the launcher alive). The vendor writes them as
+  `android.uid.system` (`com.spd.setting` manifest: `sharedUserId=android.uid.system`).
+  The interop door IS shipped: that app's **exported** `SettingService` exposes AIDL
+  `putInt(int code,int)`/`getInt(int code,int)` (tx 26/27), codes 40033/40040 server-side
+  write exactly the two enable keys (`GeneralControllerImpl` packed-switch base `0x9c41`).
+  The Diagnostics button now tries direct writes first (other ROMs), then falls back to that
+  service, and judges the outcome by re-reading the raw keys. No vendor code exists for the
+  `FLOAT_BUTTON_ABS_*` position keys — parking/un-parking the button stays a one-time
+  `adb shell settings put system FLOAT_BUTTON_ABS_Y 160` (adb shell uid is privileged).
 
 ## Option matrix
 
@@ -119,10 +130,12 @@ Root is realistic because the bootloader is already unlocked and the build is de
 ## Bench checklist for the next adb session (in order, cheap → risky)
 1. `adb root` → `id` → if uid=0: `adb shell appops set com.openlauncher.app SYSTEM_ALERT_WINDOW allow`
    (or ask user to grant in spdsettings "display over other apps") → test our overlay panels.
-2. `settings put system SETTINGS_SHORTCUT_FLOAT 1` + `SIDEBAR_APPS_FLOAT_BUTTON 1` +
-   `FLOAT_BUTTON_ABS_X 40` `FLOAT_BUTTON_ABS_Y 200` → watch SystemUI draw the floating
-   button/panel live (or after `stop com.android.systemui`? SystemUI restart may need root:
-   `kill $(pidof com.android.systemui)`; confirm behavior, screenshot, then set keys back to 0).
+2. Sidebar: DONE ON UNIT 2026-11-18 (in-app, no adb): Diagnostics ▸ "Toggle Vendor Float
+   Sidebar" enabled it via the vendor SettingService; SystemUI drew the drag-circle button AND
+   the app sidebar (YouTube/Chrome/Navi/Radio) live. Next time it's needed from adb:
+   `settings put system SETTINGS_SHORTCUT_FLOAT 1` (+ `SIDEBAR_APPS_FLOAT_BUTTON 1`, position
+   via `FLOAT_BUTTON_ABS_X 40`/`FLOAT_BUTTON_ABS_Y 200` — or just drag the circle on-device and
+   check whether SystemUI persists the ABS keys itself). Set back to 0 to revert.
 3. `pm path com.spd.media` → pull `MediaService.apk` → check `SETTING_LRC_FLOAT_WINDOW_MODE`
    owner (lyrics float window = the only other known vendor true-float feature; see if it
    exposes an interop surface). Also pull `com.carletter.car` (`/spd/app/CarLetter`) to check

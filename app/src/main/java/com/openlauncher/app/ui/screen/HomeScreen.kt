@@ -162,6 +162,8 @@ fun HomeScreen(
     hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState? = null,
     tpms: com.openlauncher.app.tpms.TpmsSnapshot = com.openlauncher.app.tpms.TpmsSnapshot(),
     onTpmsConnect: () -> Unit = {},
+    tpmsWeb: com.openlauncher.app.tpms.TpmsWebServer.Status? = null,
+    onTpmsWebToggle: () -> Unit = {},
     onLaunchHardwareRadio: () -> Unit = {},
     onStopHardwareRadio: () -> Unit = {},
     onRadioSeekUp: () -> Unit = {},
@@ -226,6 +228,8 @@ fun HomeScreen(
                     location      = location,
                     bearing       = bearing,
                     tpms          = tpms,
+                    tpmsWeb       = tpmsWeb,
+                    onTpmsWebToggle = onTpmsWebToggle,
                     hardwareRadio = hardwareRadio,
                     onMoveWidget  = onMoveWidget,
                     onResizeWidget = onResizeWidget,
@@ -383,6 +387,8 @@ private fun WidgetPageGrid(
     location: LocationData?,
     bearing: Float,
     tpms: com.openlauncher.app.tpms.TpmsSnapshot,
+    tpmsWeb: com.openlauncher.app.tpms.TpmsWebServer.Status?,
+    onTpmsWebToggle: () -> Unit,
     hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState?,
     onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
     onResizeWidget: (id: String, gridX: Int, gridY: Int, spanX: Int, spanY: Int) -> Unit,
@@ -686,6 +692,8 @@ private fun WidgetPageGrid(
                         alarmEnabled   = settings.tpmsAlarmEnabled,
                         showSpare      = settings.tpmsShowSpare,
                         onConnect      = onTpmsConnect,
+                        webStatus      = tpmsWeb,
+                        onToggleWeb    = onTpmsWebToggle,
                         modifier       = Modifier.fillMaxSize()
                     )
                     "PIP_APP" -> PipWidget(

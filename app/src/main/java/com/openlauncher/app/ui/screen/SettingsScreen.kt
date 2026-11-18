@@ -1413,56 +1413,26 @@ fun SettingsScreen(
             // Third probe (2026-11-18 vendor dex research, docs/float-window-research.md):
             // the ROM-native app sidebar (FloatSourceWindow, 9 app buttons + nav keys)
             // lives in SpdSystemUI and reacts LIVE to Settings.System keys via
-            // ContentObservers. Writing the keys with our WRITE_SETTINGS grant
-            // shows/hides it without a reboot. On the unit both keys read 0 and the
-            // button position is parked off-screen (Y = -138) - the pure helper
-            // repositions it on enable. Pure decision: vendorSidebarToggleValues.
+            // ContentObservers. UNIT-VERIFIED 2026-11-18: this ROM refuses those custom
+            // keys from third-party apps (IllegalArgumentException on every key), because
+            // the vendor's own Settings app writes them as android.uid.system
+            // (sharedUserId). Fallback shipped: the exported vendor SettingService
+            // (com.spd.setting) runs the same writes for us via numeric codes 40033/40040.
+            // Outcome is decided by re-reading the raw keys, never by trusting a write.
             SettingsButton(
                 label = "Toggle Vendor Float Sidebar (Dev)",
-                sublabel = "Flips SETTINGS_SHORTCUT_FLOAT + SIDEBAR_APPS_FLOAT_BUTTON " +
-                    "so the ROM's own floating app panel appears/disappears. Needs " +
-                    "Settings ▸ Apps ▸ 'modify system settings' granted to Open Launcher.",
+                sublabel = "Shows/hides the ROM's own floating app panel. Direct key " +
+                    "writes are refused by this ROM, so the button falls back to the " +
+                    "vendor SettingService (codes 40033/40040) which runs them as system.",
                 icon = Icons.Default.OpenInNew,
                 accent = accent,
                 onClick = {
-                    if (!com.openlauncher.app.util.SystemBrightness.canWrite(context)) {
-                        Toast.makeText(context, "Grant 'modify system settings' to Open Launcher first",
-                            Toast.LENGTH_LONG).show()
-                        runCatching { context.startActivity(
-                            com.openlauncher.app.util.SystemBrightness.grantIntent(context)) }
-                    } else {
-                        val cur = try {
-                            Pair(
-                                Settings.System.getInt(context.contentResolver, "SETTINGS_SHORTCUT_FLOAT", 0),
-                                Settings.System.getInt(context.contentResolver, "SIDEBAR_APPS_FLOAT_BUTTON", 0),
-                            )
-                        } catch (t: Throwable) { Pair(0, 0) }
-                        val values = DeviceInfoReport.vendorSidebarToggleValues(cur.first, cur.second)
-                        // Never trust the write: API 37 rejects non-allowlisted
-                        // Settings.System keys with IllegalArgumentException
-                        // ("You cannot keep your settings in the secure settings")
-                        // and crashed the launcher pre-guard on the AVD 11-18 00:17.
-                        // The API 30 SPD unit accepts them (its own Settings app
-                        // writes them) — but every ROM in between decides its own
-                        // policy, so per-key try/catch is mandatory.
-                        val failed = mutableMapOf<String, String>()
-                        values.forEach { (key, value) ->
-                            try {
-                                if (!Settings.System.putInt(context.contentResolver, key, value))
-                                    failed[key] = "refused"
-                            } catch (t: Throwable) {
-                                failed[key] = t.javaClass.simpleName
-                            }
+                    // Binder + latch waiting — never on the UI thread.
+                    diagScope.launch {
+                        val verdict = withContext(Dispatchers.IO) {
+                            toggleVendorFloatSidebar(context)
                         }
-                        Toast.makeText(context, when {
-                            failed.isNotEmpty() -> "write refused for: " +
-                                failed.entries.joinToString { "${it.key} (${it.value})" } +
-                                " — this ROM blocks custom system-settings keys"
-                            values.getValue("SETTINGS_SHORTCUT_FLOAT") == 1 ->
-                                "vendor float sidebar ENABLED - a draggable button should " +
-                                    "have appeared near the top-left"
-                            else -> "vendor float sidebar disabled"
-                        }, Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, verdict, Toast.LENGTH_LONG).show()
                     }
                 }
             )
@@ -1852,5 +1822,62 @@ private fun SettingsCategoryRail(
                 )
             }
         }
+    }
+}
+
+/**
+ * Toggle the SPD SystemUI floating app sidebar (docs/float-window-research.md).
+ * Two paths, tried in order:
+ *  1. direct Settings.System writes — only ROMs that allow custom keys for
+ *     WRITE_SETTINGS apps accept these; the SPD unit refuses them
+ *     (unit-verified 2026-11-18: IllegalArgumentException on all four keys —
+ *     the vendor UI writes them as android.uid.system via sharedUserId).
+ *  2. the exported vendor SettingService (com.spd.setting, system uid) via
+ *     numeric codes — util/VendorSettingService.kt.
+ * The verdict comes from re-reading the RAW keys before/after, so a wrong
+ * code mapping can never silently claim success. Blocking: call on IO.
+ */
+private fun toggleVendorFloatSidebar(context: android.content.Context): String {
+    val r = context.contentResolver
+    fun key(k: String) = try { Settings.System.getInt(r, k, 0) } catch (_: Throwable) { 0 }
+    val before = Pair(key("SETTINGS_SHORTCUT_FLOAT"), key("SIDEBAR_APPS_FLOAT_BUTTON"))
+
+    var directOk = true
+    DeviceInfoReport.vendorSidebarToggleValues(before.first, before.second)
+        .forEach { (k, v) ->
+            // Per-key guard: unguarded custom-key writes crashed the launcher
+            // on the API 37 AVD (IllegalArgumentException).
+            try { if (!Settings.System.putInt(r, k, v)) directOk = false }
+            catch (_: Throwable) { directOk = false }
+        }
+
+    var serviceOk = false
+    if (!directOk && com.openlauncher.app.util.VendorSettingService.isAvailable(context)) {
+        val writes = DeviceInfoReport.vendorSidebarServiceWrites(before.first, before.second)
+        serviceOk = com.openlauncher.app.util.VendorSettingService.withProxy(context) { p ->
+            writes.forEach { (code, v) -> p.putInt(code, v) }
+        }
+    }
+
+    val after = Pair(key("SETTINGS_SHORTCUT_FLOAT"), key("SIDEBAR_APPS_FLOAT_BUTTON"))
+    val enabling = before.first != 1 && before.second != 1
+    val viaService = if (!directOk) " via vendor SettingService" else ""
+    if (after == before && !directOk && !serviceOk)
+        return "this ROM refuses the sidebar keys and has no vendor SettingService — " +
+            "needs adb: settings put system SETTINGS_SHORTCUT_FLOAT " + (if (enabling) 1 else 0)
+    if (after == before)
+        return "write attempted but the keys did not change — code mapping differs on this ROM build"
+    val parkedY = try { Settings.System.getInt(r, "FLOAT_BUTTON_ABS_Y", Int.MIN_VALUE) }
+                  catch (_: Throwable) { Int.MIN_VALUE }
+    val nowOn = after.first == 1 || after.second == 1
+    return when {
+        nowOn && parkedY < 0 ->
+            "vendor float sidebar ENABLED$viaService — but the button's saved Y=" +
+                parkedY + " is off-screen; fix once with adb shell settings put " +
+                "system FLOAT_BUTTON_ABS_Y 160"
+        nowOn ->
+            "vendor float sidebar ENABLED$viaService — a draggable button should " +
+                "have appeared near the top-left"
+        else -> "vendor float sidebar disabled"
     }
 }

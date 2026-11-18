@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tyre Pressure</title>
+
+<!-- Home-screen web app: the phone's bookmark is what the launcher's URL is designed for, and
+     opened from there it runs full-bleed with no Safari chrome, like the card on the dash. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tyres">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+<!-- All styling and behaviour live in separate files, served same-origin by the launcher, so the
+     server's Content-Security-Policy can forbid inline script entirely. The colour palette and the
+     launcher-accent token are in /theme.css; the polling viewer logic is in /app.js. -->
+<link rel="stylesheet" href="/theme.css">
+</head>
+<body>
+  <header>
+    <div class="brand">Open Launcher</div>
+    <div class="title" id="title">Tyre pressure</div>
+  </header>
+
+  <div id="banner" class="hidden" role="status"></div>
+
+  <div class="grid" id="grid" aria-label="Tyre pressures"></div>
+
+  <footer>
+    <div class="linkrow">
+      <!-- Same USB glyph the card footer uses, drawn inline so no icon font is needed. -->
+      <svg id="linkIcon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M14 4l-1.4 1.4 1.6 1.6-4.1 4.1-2.5-2.5c.5-.4.8-1 .8-1.6 0-1.2-1-2.2-2.2-2.2S4 5.8 4 7s1 2.2 2.2 2.2c.6 0 1.2-.3 1.6-.8l3.5 3.5-4.1 4.1-1.6-1.6L4.1 16.3l2.5 2.5c.4.4 1 .4 1.4 0l8-8c-.4-.4-.4-1 0-1.4l2.5 2.5c.4.4.4 1 0 1.4l1.4 1.4c1.2-1.2 1.2-3 0-4.2L14 4z"/>
+      </svg>
+      <span id="check" class="hidden"></span>
+    </div>
+    <div id="age">&#8212;</div>
+  </footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-﻿# Project guidance for AI coding agents
+# Project guidance for AI coding agents
 
 ## Project
 This is the public OpenLauncher Android project. Treat its checked-in source as the implementation source of truth.
@@ -39,11 +39,19 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   (`app\src\test\java\com\openlauncher\app\ui\widget\PipFreeformTest.kt`;
   framework-free helpers in `ui\widget\PipFreeform.kt`; the Context/ActivityOptions launch chain
   in `ui\widget\PipWidget.kt` is device-verified only); plus the device report's freeform verdict /
-  resizability / su-summary helpers (`DeviceInfoReportTest.kt`); and the MAP (LIVE) card's pure
-  helpers — OSM user-agent, accuracy-tiered initial zoom, `geo:` handoff URI, lat/lon format
+  resizability / su-summary helpers (`DeviceInfoReportTest.kt`);
+  and for the tyre-card phone web server's wire contract - hotspot-AP host picking, request-line
+  parsing, the `/tpms.json` payload (raw kPa + display value, null-not-zero for unknown wheels,
+  staleness, the shared `alarmingWheels` verdict, dot-decimal numbers), routing incl. the
+  CSP-critical `/theme.css` + `/app.js` asset routes, and accent-token injection with hex
+  sanitising (`app\src\test\java\com\openlauncher\app\tpms\TpmsWebReportTest.kt`; pure
+  `tpms\TpmsWebReport.kt`; the `ServerSocket` transport `tpms\TpmsWebServer.kt` and the PWA
+  assets under `app\src\main\assets\tpmsweb\` are device-verified only);
+  and the MAP (LIVE) card's pure helpers — OSM user-agent, accuracy-tiered initial zoom,
+  `geo:` handoff URI, lat/lon format
   (`app\src\test\java\com\openlauncher\app\ui\widget\MapCardLogicTest.kt`; pure `ui\widget\MapCardLogic.kt`;
   the osmdroid `AndroidView` card body in `ui\widget\MapNativeWidget.kt` is device-verified only —
-  branch `exp-mapcard`: keep its controls inside the native view subtree, classic AndroidView draws
+  on the `exp-mapcard` branch: keep its controls inside the native view subtree, classic AndroidView draws
   views OVER sibling Compose overlays, and Material Button inflation crashes under the launcher's
   DeviceDefault theme).
   JVM only, no device. No `app\src\androidTest` sources. Run them locally with
@@ -122,11 +130,25 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   / `FloatSourceWindow`: 9 hardcoded app buttons doing plain fullscreen `startActivity` handoff,
   plus back/home/power/volume keys), toggled LIVE by `SpdStatusBarViewManager` ContentObservers on
   Settings.System `SETTINGS_SHORTCUT_FLOAT`/`SIDEBAR_APPS_FLOAT_BUTTON` (both 0 on the unit;
-  `FLOAT_BUTTON_ABS_Y` = -138 parked off-screen) — any WRITE_SETTINGS app can toggle them, so
-  Diagnostics now ships "Toggle Vendor Float Sidebar (Dev)" (pure helper
-  `DeviceInfoReport.vendorSidebarToggleValues`, JVM-tested; writes are per-key try/catch because
-  newer Android rejects custom Settings.System keys — unguarded write crashed the launcher on the
-  API 37 AVD). The unit's bootloader is ALREADY UNLOCKED (`ro.boot.flash.locked=0`,
+  `FLOAT_BUTTON_ABS_Y` = -138 parked off-screen). **2026-11-18 unit correction: third-party apps
+  CANNOT write those keys directly — the SPD unit rejects all four with IllegalArgumentException
+  ×4 (the "modify system settings"/WRITE_SETTINGS grant covers only allowlisted keys; the vendor's
+  own Settings app writes these because `com.spd.setting` has `sharedUserId=android.uid.system`).
+  In-app interop shipped instead: that app's EXPORTED `SettingService` AIDL — independent client in
+  `util\VendorSettingService.kt` (descriptor com.spd.setting.aidl.ISettingService, putInt tx=26 /
+  getInt tx=27, codes 40033/40040 = SHORTCUT_FLOAT_ENABLE/SIDEBAR_APPS_FLOAT_ENABLE; server-side
+  GeneralControllerImpl packed-switch base 0x9c41 maps them to exactly the two enable keys). The
+  Diagnostics "Toggle Vendor Float Sidebar (Dev)" button = direct writes first (other ROMs), then
+  vendor-service fallback, verdict by RE-READING the raw keys, runs on IO (diagScope). Pure helpers
+  `vendorSidebarToggleValues` + `vendorSidebarServiceWrites` are JVM-tested. No vendor service code
+  exists for the FLOAT_BUTTON_ABS position keys — un-parking needs one `adb shell settings put
+  system FLOAT_BUTTON_ABS_Y 160` (adb shell uid is privileged). **PROVEN ON UNIT 2026-11-18 15:56:
+  the toggle enabled via the service and SystemUI drew BOTH overlays live over the launcher — the
+  draggable circle (FloatButtonWindow: Recent Apps/Clear/Voice/±volume/Home/Back/Mute panel) and
+  the app sidebar (FloatSourceWindow: YouTube/Chrome/Navi/Radio app buttons). The enable keys
+  persist in Settings.System, so the panels survive reboot; dragging the circle should make
+  SystemUI itself re-write the ABS position keys (verify next adb session). AVD remains the
+  no-service graceful path only.** The unit's bootloader is ALREADY UNLOCKED (`ro.boot.flash.locked=0`,
   `verifiedbootstate=orange`) and the build is debuggable (`ro.debuggable=1`, `ro.secure=0`,
   `ro.adb.secure=0`) → `adb root` likely works → the remaining route to true floating app windows
   on this unit is the revertible experiment staged in `tools\freeform-root-experiment\` (declare

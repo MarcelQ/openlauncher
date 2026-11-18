@@ -177,6 +177,27 @@ object DeviceInfoReport {
     }
 
     /**
+     * Fallback path when the ROM refuses the direct Settings.System writes above
+     * (unit-verified 2026-11-18: even API 30 SPD rejects custom keys from
+     * third-party apps — the vendor UI writes them as android.uid.system).
+     * The exported vendor SettingService (util/VendorSettingService.kt) takes
+     * numeric codes instead; these two map server-side to exactly the two
+     * enable keys (GeneralControllerImpl switch base 0x9c41=40033). There are
+     * NO vendor codes for the FLOAT_BUTTON_ABS position keys — enabling on a
+     * unit with a parked off-screen Y needs one adb write (see docs).
+     * const vals are compile-time inlined, so this stays JVM-testable.
+     */
+    fun vendorSidebarServiceWrites(shortcutFloat: Int, sidebarApps: Int): Map<Int, Int> {
+        val enabling = shortcutFloat != 1 && sidebarApps != 1
+        return mapOf(
+            com.openlauncher.app.util.VendorSettingService.CODE_SHORTCUT_FLOAT
+                to if (enabling) 1 else 0,
+            com.openlauncher.app.util.VendorSettingService.CODE_SIDEBAR_APPS
+                to if (enabling) 1 else 0,
+        )
+    }
+
+    /**
      * `ApplicationExitInfo.reason` code -> readable label (API 30 post-mortem
      * probe in DeviceInfoCollector). Values mirror the framework constants,
      * duplicated here so the mapping stays JVM-testable; unknown codes fall
