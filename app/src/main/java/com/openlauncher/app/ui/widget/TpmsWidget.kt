@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -26,6 +27,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,6 +38,7 @@ import com.openlauncher.app.tpms.TirePosition
 import com.openlauncher.app.tpms.TireReading
 import com.openlauncher.app.tpms.TpmsConnection
 import com.openlauncher.app.tpms.TpmsSnapshot
+import com.openlauncher.app.tpms.TpmsWebServer
 import kotlinx.coroutines.delay
 
 /**
@@ -73,7 +78,10 @@ fun TpmsWidget(
     isEditing: Boolean = false,
     alarmEnabled: Boolean = true,
     showSpare: Boolean = true,
+    /** LAN server state for the phone-facing page; null = feature not wired in this call site. */
+    webStatus: TpmsWebServer.Status? = null,
     onConnect: () -> Unit = {},
+    onToggleWeb: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Ticking clock: readings age in place while the car is parked and nothing re-emits.
@@ -109,12 +117,20 @@ fun TpmsWidget(
     // One pulse for the whole card, so all warned tiles breathe in step.
     val pulse       = if (alarming) alarmPulse() else 1f
 
-    Column(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .padding(start = 10.dp, end = 10.dp, top = 22.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(start = 10.dp, end = 10.dp, top = 22.dp, bottom = 8.dp)
     ) {
+        // The footer already has the link glyph and (when down) a CONNECT button; on a 1x1 card the
+        // WEB control therefore goes icon-only, and only a card wide enough to seat both keeps its
+        // label. Guessing from the card's own width beats a magic constant tied to one grid size.
+        val webLabelFits = maxWidth >= 210.dp
+
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
         BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
@@ -192,8 +208,12 @@ fun TpmsWidget(
             dimColor      = dimColor,
             linkColor     = linkColor,
             isEditing     = isEditing,
-            onConnect     = onConnect
+            webStatus     = webStatus,
+            webLabelFits  = webLabelFits,
+            onConnect     = onConnect,
+            onToggleWeb   = onToggleWeb
         )
+        }
     }
 }
 
@@ -372,7 +392,10 @@ private fun TpmsFooter(
     dimColor: Color,
     linkColor: Color,
     isEditing: Boolean,
-    onConnect: () -> Unit
+    webStatus: TpmsWebServer.Status?,
+    webLabelFits: Boolean,
+    onConnect: () -> Unit,
+    onToggleWeb: () -> Unit
 ) {
     Row(
         modifier              = Modifier.fillMaxWidth(),
@@ -426,35 +449,110 @@ private fun TpmsFooter(
                     letterSpacing = 1.sp
                 )
             }
+
+            // The address the phone must open, printed only while the server is actually listening:
+            // this is what the user types once on the phone and then keeps as a home-screen
+            // shortcut. Shown without the http:// scheme because a 1×1 card cannot fit a full URL —
+            // the content description carries it verbatim, and the access point's gateway address is
+            // fixed by the OS, so what is printed here stays valid across reboots.
+            val webUrl = webStatus?.url
+            if (!isEditing && webUrl != null) {
+                Text(
+                    text          = "${webStatus?.host}:${webStatus?.port}",
+                    fontSize      = 8.5.sp,
+                    color         = accent.copy(alpha = 0.75f),
+                    fontFamily    = FontFamily.Monospace,
+                    letterSpacing = 0.5.sp,
+                    maxLines      = 1,
+                    overflow      = TextOverflow.Clip,
+                    modifier      = Modifier.semantics { contentDescription = "Phone tyre page: $webUrl" }
+                )
+            }
         }
 
-        // Only offer CONNECT when the link is actually down, and never while rearranging —
-        // edit mode must stay free for long-press dragging.
-        if (!isEditing && snapshot.status != TpmsConnection.CONNECTED && snapshot.status != TpmsConnection.CONNECTING) {
+        // Right side: the phone-facing server toggle, then CONNECT when the link is actually down.
+        // Never while rearranging — edit mode must stay free for long-press dragging.
+        if (!isEditing) {
             Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(3.dp))
-                    .border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(3.dp))
-                    .background(accent.copy(alpha = 0.12f))
-                    .clickable { onConnect() }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Icon(
-                    imageVector        = Icons.Default.Usb,
-                    contentDescription = "Connect USB TPMS receiver",
-                    tint               = accent,
-                    modifier           = Modifier.size(12.dp)
-                )
-                Text(
-                    text          = "CONNECT",
-                    fontSize      = 8.5.sp,
-                    color         = accent,
-                    fontFamily    = FontFamily.Monospace,
-                    fontWeight    = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
+                // WEB: the tyre page on a phone joined to this unit's hotspot. Tint follows the
+                // server state — accent while it is listening, alarm colour when the bind failed
+                // (a port clash is worth seeing), dim when off. Same button recipe as CONNECT so the
+                // card does not grow a second visual language.
+                val webRunning = webStatus?.state == TpmsWebServer.State.RUNNING
+                val webFailed  = webStatus?.state == TpmsWebServer.State.ERROR
+                val webTint = when {
+                    webRunning -> accent
+                    webFailed  -> alarmColor
+                    else       -> dimColor
+                }
+                val webDesc = when {
+                    webStatus == null -> "Phone tyre page: not available"
+                    webRunning -> "Phone tyre page is on" +
+                        (webStatus.url?.let { " at $it" } ?: "") + ". Tap to turn off."
+                    webFailed  -> "Phone tyre page failed to start" +
+                        (webStatus.detail?.let { ": $it" } ?: "") + ". Tap to retry."
+                    else -> "Phone tyre page is off. Tap to turn on."
+                }
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(3.dp))
+                        .border(1.dp, webTint.copy(alpha = 0.6f), RoundedCornerShape(3.dp))
+                        .background(webTint.copy(alpha = if (webRunning) 0.16f else 0.05f))
+                        .clickable { onToggleWeb() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector        = Icons.Default.Wifi,
+                        contentDescription = webDesc,
+                        tint               = webTint,
+                        modifier           = Modifier.size(12.dp)
+                    )
+                    // Icon-only on a 1×1 card: the footer already has the link glyph, the CHECK line
+                    // and sometimes CONNECT, and a fifth label would collide.
+                    if (webLabelFits) {
+                        Text(
+                            text          = "WEB",
+                            fontSize      = 8.5.sp,
+                            color         = webTint,
+                            fontFamily    = FontFamily.Monospace,
+                            fontWeight    = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                }
+
+                if (snapshot.status != TpmsConnection.CONNECTED && snapshot.status != TpmsConnection.CONNECTING) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .border(1.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(3.dp))
+                            .background(accent.copy(alpha = 0.12f))
+                            .clickable { onConnect() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Default.Usb,
+                            contentDescription = "Connect USB TPMS receiver",
+                            tint               = accent,
+                            modifier           = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text          = "CONNECT",
+                            fontSize      = 8.5.sp,
+                            color         = accent,
+                            fontFamily    = FontFamily.Monospace,
+                            fontWeight    = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                }
             }
         }
     }

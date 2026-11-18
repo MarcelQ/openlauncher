@@ -1,4 +1,4 @@
-﻿# Project guidance for AI coding agents
+# Project guidance for AI coding agents
 
 ## Project
 This is the public OpenLauncher Android project. Treat its checked-in source as the implementation source of truth.
@@ -39,7 +39,14 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   (`app\src\test\java\com\openlauncher\app\ui\widget\PipFreeformTest.kt`;
   framework-free helpers in `ui\widget\PipFreeform.kt`; the Context/ActivityOptions launch chain
   in `ui\widget\PipWidget.kt` is device-verified only); plus the device report's freeform verdict /
-  resizability / su-summary helpers (`DeviceInfoReportTest.kt`).
+  resizability / su-summary helpers (`DeviceInfoReportTest.kt`);
+  and for the tyre-card phone web server's wire contract - hotspot-AP host picking, request-line
+  parsing, the `/tpms.json` payload (raw kPa + display value, null-not-zero for unknown wheels,
+  staleness, the shared `alarmingWheels` verdict, dot-decimal numbers), routing incl. the
+  CSP-critical `/theme.css` + `/app.js` asset routes, and accent-token injection with hex
+  sanitising (`app\src\test\java\com\openlauncher\app\tpms\TpmsWebReportTest.kt`; pure
+  `tpms\TpmsWebReport.kt`; the `ServerSocket` transport `tpms\TpmsWebServer.kt` and the PWA
+  assets under `app\src\main\assets\tpmsweb\` are device-verified only).
   JVM only, no device. No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).

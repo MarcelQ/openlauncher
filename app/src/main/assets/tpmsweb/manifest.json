@@ -1,0 +1,15 @@
+{
+  "name": "Tyre Pressure — Open Launcher",
+  "short_name": "Tyres",
+  "description": "Live tyre pressures from the head unit over the car's own hotspot. Works offline on the vehicle network.",
+  "start_url": "/?view=home",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

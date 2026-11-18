@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
             val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
             val tpmsSnapshot  by vm.tpmsSnapshot.collectAsStateWithLifecycle()
             val tpms        by vm.tpmsSnapshot.collectAsStateWithLifecycle()
+            val tpmsWeb     by vm.tpmsWebStatus.collectAsStateWithLifecycle()
             val updateState by vm.updateState.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
@@ -309,6 +310,8 @@ class MainActivity : ComponentActivity() {
                                         onAssignRadio         = { vm.startRadioPicker() },
                                         tpms                  = tpmsSnapshot,
                                         onTpmsConnect         = { vm.requestTpmsConnect() },
+                                        tpmsWeb               = tpmsWeb,
+                                        onTpmsWebToggle       = { vm.toggleTpmsWebServer() },
                                         onSetBrightnessLevel  = { slot, pct -> vm.setBrightnessPct(slot, pct) },
                                         onSetBrightnessAuto   = { on -> vm.setBrightnessAuto(on) }
                                     )

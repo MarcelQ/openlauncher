@@ -59,6 +59,7 @@ import com.openlauncher.app.tpms.TpmsChimeCadence
 import com.openlauncher.app.tpms.TpmsChimePlayer
 import com.openlauncher.app.tpms.TpmsRepository
 import com.openlauncher.app.tpms.TpmsSnapshot
+import com.openlauncher.app.tpms.TpmsWebServer
 import com.openlauncher.app.util.LocationCompassManager
 import com.openlauncher.app.util.LocationData
 import kotlinx.coroutines.*
@@ -650,12 +651,26 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Plug-in hook from MainActivity's USB_DEVICE_ATTACHED intent. */
     fun onUsbDeviceAttached() = tpms.onPlugIn("usb intent")
 
+    // ── Tyre card on the phone: LAN web server ─────────────────────────────────
+    // The phone already joins the unit's hotspot, so the same readings it sees on the dash can be
+    // served over the vehicle network with no internet, no app store and no pairing. Server state
+    // is process-scoped like the repository: the port may only be bound once and the phone's page
+    // outlives MainActivity recreations.
+    private val tpmsWeb = TpmsWebServer.get(getApplication())
+
+    /** Drives the card's WEB button (state + the URL to type into the phone). */
+    val tpmsWebStatus: StateFlow<TpmsWebServer.Status> = tpmsWeb.status
+
+    /** Card action: turn the phone-facing server on/off. Persisted, so a reboot keeps it. */
+    fun setTpmsWebServer(enabled: Boolean) = updateSettings { copy(tpmsWebServerEnabled = enabled) }
+
+    /** The card's WEB button: one tap flips the persisted switch. */
+    fun toggleTpmsWebServer() = updateSettings { copy(tpmsWebServerEnabled = !tpmsWebServerEnabled) }
     // Settings drive the repository: having a TPMS card on any page is what arms auto-connect.
     init {
         viewModelScope.launch {
             settings.collect { s ->
-                tpms.configure(s.hasWidgetType("TPMS"), s.tpmsAutoConnect)
-                // Hand the Now Playing service its auto-wake target; the flip
+                tpms.configure(s.hasWidgetType("TPMS"), s.tpmsAutoConnect)                // Hand the Now Playing service its auto-wake target; the flip
                 // from off→on asks for an immediate re-check of the sessions.
                 val target = if (s.spotifyAutoConnect) MediaListenerService.SPOTIFY_PACKAGE else null
                 if (MediaListenerService.autoConnectPackage != target) {
@@ -708,6 +723,28 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 // switches the sound off mid-warning (the cadence resets itself in both cases).
                 if (!alarming && wasSounding) tpmsChimePlayer.stop()
                 wasSounding = alarming
+            }
+        }
+    }
+
+    // ── Tyre web server lifecycle ──────────────────────────────────────────────
+    // Start/stop follows two conditions, mirroring how the receiver is armed: the user's toggle on
+    // the card (persisted, survives reboots) AND a TPMS card on some page. Removing the card must
+    // close the port — a server that outlives its card would keep answering on a feature the user
+    // deleted. Deliberately a loop rather than two flow collectors: one place decides, and the
+    // start/stop decision stays readable.
+    init {
+        viewModelScope.launch {
+            while (isActive) {
+                val s = settings.value
+                val wantServer = s.tpmsWebServerEnabled && s.hasWidgetType("TPMS")
+                tpmsWeb.update(s)
+                tpmsWeb.sync(wantServer, s.tpmsWebServerPort)
+                // The hotspot interface can appear long after the server started (the user enables
+                // tethering from the vendor settings app, sometimes after a reboot), and the URL on
+                // the card is what the phone's bookmark must match — so re-check it while running.
+                tpmsWeb.refreshHost()
+                delay(TPMS_WEB_POLL_MS)
             }
         }
     }
@@ -1052,4 +1089,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 // reports several times a second would otherwise restart the cadence on every frame.
 private const val TPMS_CHIME_POLL_MS = 1_000L
 private const val TPMS_CHIME_IDLE_POLL_MS = 5_000L
+
+// Period of the tyre-web-server lifecycle loop. Slower than the chime on purpose: the HTTP handler
+// reads the repository snapshot per request, so this loop only decides start/stop and refreshes the
+// URL the card shows — a five-second reaction to a toggle is instant next to a human tapping a
+// button, and 5 s keeps a bound-port retry (after an ERROR) from hammering the radio stack.
+private const val TPMS_WEB_POLL_MS = 5_000L
 

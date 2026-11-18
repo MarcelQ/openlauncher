@@ -97,6 +97,7 @@ object TpmsWebReport {
         lowPressureKpa: Float,
         alarmEnabled: Boolean,
         showSpare: Boolean,
+        isMetric: Boolean,
         nowMs: Long
     ): String {
         val alarming = snapshot.alarmingWheels(lowPressureKpa, alarmEnabled, nowMs).toSet()
@@ -109,6 +110,7 @@ object TpmsWebReport {
         sb.append("\"decimals\":").append(unit.decimalsForJson()).append(",")
         sb.append("\"alarmEnabled\":").append(alarmEnabled).append(",")
         sb.append("\"showSpare\":").append(showSpare).append(",")
+        sb.append("\"metric\":").append(isMetric).append(",")
         sb.append("\"lowPressure\":").append(num(unit.fromKpa(lowPressureKpa), unit)).append(",")
         sb.append("\"lastFrameAt\":").append(snapshot.lastFrameAt).append(",")
         sb.append("\"lastFrameAgeSeconds\":")
@@ -216,7 +218,10 @@ object TpmsWebReport {
      * Route one parsed path to a response. Pure so the whole public surface of the server —
      * which paths exist, what content type they claim, and what 404 looks like — is unit-tested.
      *
-     * [pageHtml] / [manifestJson] / [iconPng] are the static assets the transport loads once.
+     * [pageHtml] / [cssText] / [appJs] / [manifestJson] / [iconPng] are the static assets the
+     * transport loads once. The page has NO inline style or script: the stylesheet and the viewer
+     * script are their own routes, which is what lets the transport's Content-Security-Policy
+     * forbid inline execution entirely — a page showing safety data should not need 'unsafe-inline'.
      */
     fun route(
         path: String?,
@@ -225,9 +230,12 @@ object TpmsWebReport {
         lowPressureKpa: Float,
         alarmEnabled: Boolean,
         showSpare: Boolean,
+        isMetric: Boolean,
         accentHex: String,
         nowMs: Long,
         pageHtml: String?,
+        cssText: String?,
+        appJs: String?,
         manifestJson: String?,
         iconPng: ByteArray?,
         faviconSvg: String?
@@ -237,29 +245,46 @@ object TpmsWebReport {
             "/", "/index.html", "/tpms", "/tpms.html" ->
                 if (pageHtml == null) textResponse(503, "Dashboard asset missing")
                 else htmlResponse(fillPageTokens(pageHtml, accentHex))
+            "/theme.css" ->
+                // Accent token is filled here too (this is where --accent now lives), and it is
+                // never cached: changing the launcher accent must show on the phone on next poll,
+                // not after a day of stale CSS.
+                if (cssText == null) textResponse(503, "Stylesheet asset missing")
+                else WebResponse(
+                    200, "text/css; charset=utf-8",
+                    fillPageTokens(cssText, accentHex).toByteArray(Charsets.UTF_8),
+                    mapOf("Cache-Control" to "no-store")
+                )
+            "/app.js" ->
+                if (appJs == null) textResponse(503, "Script asset missing")
+                else WebResponse(
+                    200, "text/javascript; charset=utf-8",
+                    appJs.toByteArray(Charsets.UTF_8),
+                    mapOf("Cache-Control" to "no-store")
+                )
             "/tpms.json" -> WebResponse(
                 status = 200,
                 contentType = "application/json; charset=utf-8",
-                body = payloadJson(snapshot, unit, lowPressureKpa, alarmEnabled, showSpare, nowMs)
+                body = payloadJson(snapshot, unit, lowPressureKpa, alarmEnabled, showSpare, isMetric, nowMs)
                     .toByteArray(Charsets.UTF_8),
                 // Never cache: a bookmarked shortcut must show live pressures, and a cached
                 // "—" would otherwise outlive the link coming back.
-                extraHeaders = mapOf("Cache-Control" -> "no-store")
+                extraHeaders = mapOf("Cache-Control" to "no-store")
             )
             "/manifest.webmanifest", "/manifest.json" ->
                 if (manifestJson == null) textResponse(404, "Not found")
                 else WebResponse(
                     200, "application/manifest+json; charset=utf-8",
                     manifestJson.toByteArray(Charsets.UTF_8),
-                    mapOf("Cache-Control" -> "no-store")
+                    mapOf("Cache-Control" to "no-store")
                 )
             "/apple-touch-icon.png", "/icon.png" ->
                 if (iconPng == null) textResponse(404, "Not found")
-                else WebResponse(200, "image/png", iconPng, mapOf("Cache-Control" -> "max-age=86400"))
+                else WebResponse(200, "image/png", iconPng, mapOf("Cache-Control" to "max-age=86400"))
             "/favicon.svg" ->
                 if (faviconSvg == null) textResponse(404, "Not found")
                 else WebResponse(200, "image/svg+xml; charset=utf-8",
-                    faviconSvg.toByteArray(Charsets.UTF_8), mapOf("Cache-Control" -> "max-age=86400"))
+                    faviconSvg.toByteArray(Charsets.UTF_8), mapOf("Cache-Control" to "max-age=86400"))
             "/health" -> textResponse(200, "ok " + snapshot.status.name)
             else -> textResponse(404, "Not found")
         }
@@ -279,13 +304,13 @@ object TpmsWebReport {
 
     private fun htmlResponse(html: String) = WebResponse(
         200, "text/html; charset=utf-8", html.toByteArray(Charsets.UTF_8),
-        mapOf("Cache-Control" -> "no-store")
+        mapOf("Cache-Control" to "no-store")
     )
 
     private fun textResponse(status: Int, message: String) = WebResponse(
         status,
         "text/plain; charset=utf-8",
         message.toByteArray(Charsets.UTF_8),
-        mapOf("Cache-Control" -> "no-store")
+        mapOf("Cache-Control" to "no-store")
     )
 }
