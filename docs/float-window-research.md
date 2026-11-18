@@ -105,7 +105,12 @@ Root is realistic because the bootloader is already unlocked and the build is de
   only needed if the feature-XML route is stripped further by SPD.
 
 ### F. Dead ends (proven, don't revisit on this unit)
-- AOSP-testkey `sharedUserId=android.uid.system` (private vendor key).
+- AOSP-testkey `sharedUserId=android.uid.system` (private vendor key). **DEFINITIVE 2026-11-18:**
+  the unit's platform cert was extracted from the captured `framework-res.apk` —
+  `CN=release, OU=Zhantang` SHA-256 `5304915c…2888cb7` ≠ AOSP testkey `c8a2e9bc…`. Any
+  testkey-signed system-uid app (our aospDebug, or third-party launchers like mini-aa's
+  system-release that embed app tasks via `TaskOrganizer`+`SurfaceControlViewHost`) is
+  `INSTALL_FAILED_SHARED_USER_INCOMPATIBLE` here — do not bench-test those APKs again.
 - `com.spd.floatwindow` interop (broken APK; service crash-loops; no app-window classes).
 - Broadcasting to vendor float-window receivers (its exported receivers are only
   BOOT/SCREEN_ON/BLUETOOTH/LOCALE; `FloatWindowService.onStartCommand` takes no extras).

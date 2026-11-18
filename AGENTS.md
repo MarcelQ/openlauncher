@@ -111,7 +111,13 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   `setLaunchWindowingMode` and `ACTIVITY_EMBEDDING` become available; install fails with
   `INSTALL_FAILED_SHARED_USER_INCOMPATIBLE` = ROM uses a private key, this path is closed.
   **VERDICT on the dev's SPD trinket unit (2026-11-17): install via the unit's browser failed with
-  "App not installed" → private key → the privileged path is CLOSED on this unit** (the release and
+  "App not installed" → private key → the privileged path is CLOSED on this unit** (DEFINITIVE
+  2026-11-18 from the local capture: `framework-res.apk` + `SettingService.apk` in
+  `reference\unit-20261118\` are platform-signed by `CN=release, OU=Zhantang, O=Zhantang` SHA-256
+  `5304915c4bb7baca…2888cb7` (Zhantang = the solution vendor) — NOT the AOSP testkey
+  (`c8a2e9bc…`), so no testkey-based system-uid APK (ours OR the third-party mini-aa
+  system-release) can ever install there; cert dumps saved at
+  `reference\unit-20261118\props\unit_platform_cert.txt`) (the release and
   build type stay for other QCM units that may use the public testkey; do not re-litigate this
   unit). Follow-up probe shipped instead: Diagnostics now enumerates the vendor float-window stack
   (`com.spd.floatwindow` activities/receivers + exported flags + main activity). **FINDINGS from the
