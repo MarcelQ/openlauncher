@@ -50,10 +50,11 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   and the MAP (LIVE) card's pure helpers — OSM user-agent, accuracy-tiered initial zoom,
   `geo:` handoff URI, lat/lon format
   (`app\src\test\java\com\openlauncher\app\ui\widget\MapCardLogicTest.kt`; pure `ui\widget\MapCardLogic.kt`;
-  the osmdroid `AndroidView` card body in `ui\widget\MapNativeWidget.kt` is device-verified only —
-  on the `exp-mapcard` branch: keep its controls inside the native view subtree, classic AndroidView draws
-  views OVER sibling Compose overlays, and Material Button inflation crashes under the launcher's
-  DeviceDefault theme).
+  the osmdroid `AndroidView` card body in `ui\widget\MapNativeWidget.kt` is device-verified on the
+  real SPD unit 2026-11-18 (real Mapnik tiles over unit Wi-Fi + green GPS position dot at the unit's
+  location). Gotchas from the prototype: keep the card's controls inside the native view subtree —
+  classic AndroidView draws views OVER sibling Compose overlays — and Material Button inflation
+  crashes under the launcher's DeviceDefault theme).
   JVM only, no device. No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).
