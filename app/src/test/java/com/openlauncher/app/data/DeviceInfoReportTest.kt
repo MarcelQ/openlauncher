@@ -169,4 +169,24 @@ class DeviceInfoReportTest {
             assertTrue(!off.containsKey("FLOAT_BUTTON_ABS_X") && !off.containsKey("FLOAT_BUTTON_ABS_Y"))
         }
     }
+
+    @Test
+    fun `vendor sidebar service fallback uses the two documented numeric codes`() {
+        // The unit-verified (2026-11-18) path when direct Settings.System writes
+        // are refused: vendor SettingService putInt(40033/40040, 1|0). Codes are
+        // the vendor's SettingUtils.General values for the two enable keys.
+        val on = DeviceInfoReport.vendorSidebarServiceWrites(0, 0)
+        assertEquals(2, on.size)
+        assertEquals(1, on[40033])
+        assertEquals(1, on[40040])
+
+        val off = DeviceInfoReport.vendorSidebarServiceWrites(1, 1)
+        assertEquals(0, off[40033])
+        assertEquals(0, off[40040])
+
+        // Mixed states count as "on" -> disable both, same as the direct path.
+        val disable = DeviceInfoReport.vendorSidebarServiceWrites(1, 0)
+        assertEquals(0, disable[40033])
+        assertEquals(0, disable[40040])
+    }
 }

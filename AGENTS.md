@@ -116,11 +116,21 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   / `FloatSourceWindow`: 9 hardcoded app buttons doing plain fullscreen `startActivity` handoff,
   plus back/home/power/volume keys), toggled LIVE by `SpdStatusBarViewManager` ContentObservers on
   Settings.System `SETTINGS_SHORTCUT_FLOAT`/`SIDEBAR_APPS_FLOAT_BUTTON` (both 0 on the unit;
-  `FLOAT_BUTTON_ABS_Y` = -138 parked off-screen) — any WRITE_SETTINGS app can toggle them, so
-  Diagnostics now ships "Toggle Vendor Float Sidebar (Dev)" (pure helper
-  `DeviceInfoReport.vendorSidebarToggleValues`, JVM-tested; writes are per-key try/catch because
-  newer Android rejects custom Settings.System keys — unguarded write crashed the launcher on the
-  API 37 AVD). The unit's bootloader is ALREADY UNLOCKED (`ro.boot.flash.locked=0`,
+  `FLOAT_BUTTON_ABS_Y` = -138 parked off-screen). **2026-11-18 unit correction: third-party apps
+  CANNOT write those keys directly — the SPD unit rejects all four with IllegalArgumentException
+  ×4 (the "modify system settings"/WRITE_SETTINGS grant covers only allowlisted keys; the vendor's
+  own Settings app writes these because `com.spd.setting` has `sharedUserId=android.uid.system`).
+  In-app interop shipped instead: that app's EXPORTED `SettingService` AIDL — independent client in
+  `util\VendorSettingService.kt` (descriptor com.spd.setting.aidl.ISettingService, putInt tx=26 /
+  getInt tx=27, codes 40033/40040 = SHORTCUT_FLOAT_ENABLE/SIDEBAR_APPS_FLOAT_ENABLE; server-side
+  GeneralControllerImpl packed-switch base 0x9c41 maps them to exactly the two enable keys). The
+  Diagnostics "Toggle Vendor Float Sidebar (Dev)" button = direct writes first (other ROMs), then
+  vendor-service fallback, verdict by RE-READING the raw keys, runs on IO (diagScope). Pure helpers
+  `vendorSidebarToggleValues` + `vendorSidebarServiceWrites` are JVM-tested. No vendor service code
+  exists for the FLOAT_BUTTON_ABS position keys — un-parking needs one `adb shell settings put
+  system FLOAT_BUTTON_ABS_Y 160` (adb shell uid is privileged). The on-unit ENABLE success path
+  (service bind + SystemUI drawing the panel) awaits the user's next test; AVD proves only the
+  graceful no-service path.** The unit's bootloader is ALREADY UNLOCKED (`ro.boot.flash.locked=0`,
   `verifiedbootstate=orange`) and the build is debuggable (`ro.debuggable=1`, `ro.secure=0`,
   `ro.adb.secure=0`) → `adb root` likely works → the remaining route to true floating app windows
   on this unit is the revertible experiment staged in `tools\freeform-root-experiment\` (declare
