@@ -346,8 +346,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             // free area fits it, fall back to 1×1 at the free cell so it can't
             // overlap neighbors
             val template = widgets.lastOrNull { it.type == type }
-            val sx = (template?.spanX ?: 1).coerceIn(1, dims.cols)
-            val sy = (template?.spanY ?: 1).coerceIn(1, dims.rows)
+            // A first MAP card starts at 2×2 - a 1×1 live map is useless;
+            // other types keep the historic 1×1 default.
+            val defaultSpan = if (type == "MAP_NATIVE") 2 to 2 else 1 to 1
+            val sx = (template?.spanX ?: defaultSpan.first).coerceIn(1, dims.cols)
+            val sy = (template?.spanY ?: defaultSpan.second).coerceIn(1, dims.rows)
             val area = if (sx > 1 || sy > 1) firstFreeArea(onPage, dims.cols, dims.rows, sx, sy) else null
             val inst = if (area != null)
                 WidgetInstance(nextInstanceId(widgets, type), type, pageIndex, area.first, area.second, sx, sy)

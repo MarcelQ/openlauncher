@@ -46,7 +46,14 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   CSP-critical `/theme.css` + `/app.js` asset routes, and accent-token injection with hex
   sanitising (`app\src\test\java\com\openlauncher\app\tpms\TpmsWebReportTest.kt`; pure
   `tpms\TpmsWebReport.kt`; the `ServerSocket` transport `tpms\TpmsWebServer.kt` and the PWA
-  assets under `app\src\main\assets\tpmsweb\` are device-verified only).
+  assets under `app\src\main\assets\tpmsweb\` are device-verified only);
+  and the MAP (LIVE) card's pure helpers — OSM user-agent, accuracy-tiered initial zoom,
+  `geo:` handoff URI, lat/lon format
+  (`app\src\test\java\com\openlauncher\app\ui\widget\MapCardLogicTest.kt`; pure `ui\widget\MapCardLogic.kt`;
+  the osmdroid `AndroidView` card body in `ui\widget\MapNativeWidget.kt` is device-verified only —
+  on the `exp-mapcard` branch: keep its controls inside the native view subtree, classic AndroidView draws
+  views OVER sibling Compose overlays, and Material Button inflation crashes under the launcher's
+  DeviceDefault theme).
   JVM only, no device. No `app\src\androidTest` sources. Run them locally with
   `java -cp gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:testDebugUnitTest`
   and build with the same wrapper plus `:app:assembleDebug` (this checkout has no `gradlew.bat`).
