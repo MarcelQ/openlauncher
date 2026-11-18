@@ -130,12 +130,12 @@ Root is realistic because the bootloader is already unlocked and the build is de
 ## Bench checklist for the next adb session (in order, cheap → risky)
 1. `adb root` → `id` → if uid=0: `adb shell appops set com.openlauncher.app SYSTEM_ALERT_WINDOW allow`
    (or ask user to grant in spdsettings "display over other apps") → test our overlay panels.
-2. Sidebar: tap Diagnostics ▸ "Toggle Vendor Float Sidebar" (it now writes the two enable
-   keys through the vendor SettingService — expect the toast "ENABLED via vendor
-   SettingService"; if SystemUI draws nothing, the button position is parked:
-   `settings put system FLOAT_BUTTON_ABS_X 40` + `FLOAT_BUTTON_ABS_Y 200` from adb, then
-   toggle again; screenshot, then toggle back off). Pure-adb control still works too:
-   `settings put system SETTINGS_SHORTCUT_FLOAT 1` (+ `SIDEBAR_APPS_FLOAT_BUTTON 1`).
+2. Sidebar: DONE ON UNIT 2026-11-18 (in-app, no adb): Diagnostics ▸ "Toggle Vendor Float
+   Sidebar" enabled it via the vendor SettingService; SystemUI drew the drag-circle button AND
+   the app sidebar (YouTube/Chrome/Navi/Radio) live. Next time it's needed from adb:
+   `settings put system SETTINGS_SHORTCUT_FLOAT 1` (+ `SIDEBAR_APPS_FLOAT_BUTTON 1`, position
+   via `FLOAT_BUTTON_ABS_X 40`/`FLOAT_BUTTON_ABS_Y 200` — or just drag the circle on-device and
+   check whether SystemUI persists the ABS keys itself). Set back to 0 to revert.
 3. `pm path com.spd.media` → pull `MediaService.apk` → check `SETTING_LRC_FLOAT_WINDOW_MODE`
    owner (lyrics float window = the only other known vendor true-float feature; see if it
    exposes an interop surface). Also pull `com.carletter.car` (`/spd/app/CarLetter`) to check

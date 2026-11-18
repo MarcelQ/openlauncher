@@ -128,9 +128,13 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   vendor-service fallback, verdict by RE-READING the raw keys, runs on IO (diagScope). Pure helpers
   `vendorSidebarToggleValues` + `vendorSidebarServiceWrites` are JVM-tested. No vendor service code
   exists for the FLOAT_BUTTON_ABS position keys — un-parking needs one `adb shell settings put
-  system FLOAT_BUTTON_ABS_Y 160` (adb shell uid is privileged). The on-unit ENABLE success path
-  (service bind + SystemUI drawing the panel) awaits the user's next test; AVD proves only the
-  graceful no-service path.** The unit's bootloader is ALREADY UNLOCKED (`ro.boot.flash.locked=0`,
+  system FLOAT_BUTTON_ABS_Y 160` (adb shell uid is privileged). **PROVEN ON UNIT 2026-11-18 15:56:
+  the toggle enabled via the service and SystemUI drew BOTH overlays live over the launcher — the
+  draggable circle (FloatButtonWindow: Recent Apps/Clear/Voice/±volume/Home/Back/Mute panel) and
+  the app sidebar (FloatSourceWindow: YouTube/Chrome/Navi/Radio app buttons). The enable keys
+  persist in Settings.System, so the panels survive reboot; dragging the circle should make
+  SystemUI itself re-write the ABS position keys (verify next adb session). AVD remains the
+  no-service graceful path only.** The unit's bootloader is ALREADY UNLOCKED (`ro.boot.flash.locked=0`,
   `verifiedbootstate=orange`) and the build is debuggable (`ro.debuggable=1`, `ro.secure=0`,
   `ro.adb.secure=0`) → `adb root` likely works → the remaining route to true floating app windows
   on this unit is the revertible experiment staged in `tools\freeform-root-experiment\` (declare

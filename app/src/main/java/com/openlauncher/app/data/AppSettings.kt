@@ -130,6 +130,14 @@ data class AppSettings(
     val tpmsAlarmSound: Boolean = false,
     /** Fifth spare-wheel tile on the card. Off = hide the SPARE tile even when a spare sensor reports. */
     val tpmsShowSpare: Boolean = true,
+    /**
+     * LAN web server for the tyre card (phone joins the unit's hotspot and opens the URL
+     * the card shows). Off by default so the socket only exists when the user asks for it.
+     * The port is fixed and NEVER auto-shifted: phones bookmark the URL as a home-screen
+     * shortcut, so a silently moved port would break it (see tpmsWebServerPort).
+     */
+    val tpmsWebServerEnabled: Boolean = false,
+    val tpmsWebServerPort: Int = 8080,
     val vitalsAsBars: Boolean = false,
     val speedometerDigitalOnly: Boolean = false,
     val gradientDirection: GradientDirection = GradientDirection.DIAGONAL,

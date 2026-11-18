@@ -21,6 +21,9 @@ class SettingsRepository(private val context: Context) {
     private val gson = Gson()
 
     private object Keys {
+        /** Web-server port bounds: privileged ports (<1024) need root on Android; avoid the extremes too. */
+        const val MIN_WEB_PORT = 1024
+        const val MAX_WEB_PORT = 65535
         val VEHICLE_NAME       = stringPreferencesKey("vehicle_name")
         val ACCENT_COLOR       = intPreferencesKey("accent_color")
         val BG_COLOR           = intPreferencesKey("bg_color")
@@ -62,6 +65,8 @@ class SettingsRepository(private val context: Context) {
         val TPMS_ALARM_ENABLED    = booleanPreferencesKey("tpms_alarm_enabled")
         val TPMS_ALARM_SOUND      = booleanPreferencesKey("tpms_alarm_sound")
         val TPMS_SHOW_SPARE       = booleanPreferencesKey("tpms_show_spare")
+        val TPMS_WEB_SERVER_ENABLED = booleanPreferencesKey("tpms_web_server_enabled")
+        val TPMS_WEB_SERVER_PORT  = intPreferencesKey("tpms_web_server_port")
         val VITALS_AS_BARS        = booleanPreferencesKey("vitals_as_bars")
         val SPEEDOMETER_DIGITAL_ONLY = booleanPreferencesKey("speedometer_digital_only")
         val GRADIENT_DIRECTION    = stringPreferencesKey("gradient_direction")
@@ -213,6 +218,9 @@ class SettingsRepository(private val context: Context) {
                 tpmsAlarmEnabled = prefs[Keys.TPMS_ALARM_ENABLED] ?: defaults.tpmsAlarmEnabled,
                 tpmsAlarmSound   = prefs[Keys.TPMS_ALARM_SOUND] ?: defaults.tpmsAlarmSound,
                 tpmsShowSpare    = prefs[Keys.TPMS_SHOW_SPARE]  ?: defaults.tpmsShowSpare,
+                tpmsWebServerEnabled = prefs[Keys.TPMS_WEB_SERVER_ENABLED] ?: defaults.tpmsWebServerEnabled,
+                tpmsWebServerPort = (prefs[Keys.TPMS_WEB_SERVER_PORT] ?: defaults.tpmsWebServerPort)
+                    .coerceIn(Keys.MIN_WEB_PORT, Keys.MAX_WEB_PORT),
                 soundboardPads   = prefs[Keys.SOUNDBOARD_PADS_JSON]?.let {
                     runCatching {
                         gson.fromJson<List<SoundPadConfig>>(it, object : com.google.gson.reflect.TypeToken<List<SoundPadConfig>>() {}.type)
@@ -289,6 +297,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.TPMS_ALARM_ENABLED] = s.tpmsAlarmEnabled
             prefs[Keys.TPMS_ALARM_SOUND]   = s.tpmsAlarmSound
             prefs[Keys.TPMS_SHOW_SPARE]    = s.tpmsShowSpare
+            prefs[Keys.TPMS_WEB_SERVER_ENABLED] = s.tpmsWebServerEnabled
+            prefs[Keys.TPMS_WEB_SERVER_PORT]    = s.tpmsWebServerPort.coerceIn(Keys.MIN_WEB_PORT, Keys.MAX_WEB_PORT)
             prefs[Keys.VITALS_AS_BARS]     = s.vitalsAsBars
             prefs[Keys.SPEEDOMETER_DIGITAL_ONLY] = s.speedometerDigitalOnly
             prefs[Keys.GRADIENT_DIRECTION] = s.gradientDirection.name
