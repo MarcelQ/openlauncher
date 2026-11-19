@@ -82,11 +82,17 @@ fun TaskEmbedWidget(
     var liveMode   by remember { mutableStateOf<EmbedMode?>(null) }
 
     // (Re)start embedding on assignment change; stop when cleared or editing.
+    // The delay is a settle window: during launcher boot the card composable
+    // is recreated several times in a burst (grid + settings flows both emit),
+    // and each recreation would otherwise drive a full embed/teardown cycle
+    // (round-3 bench: ~8 per 160 ms on the unit). A cancelled LaunchedEffect
+    // never reaches embed — only the final, settled one does.
     LaunchedEffect(packageName, isEditing) {
         if (isEditing || packageName.isEmpty()) {
             if (embedToken != 0) { TaskEmbedEngine.stop(embedToken); embedToken = 0 }
             liveMode = null
         } else {
+            kotlinx.coroutines.delay(350)
             val act = context as? Activity
             val b   = screenBounds
             if (act != null && b != null && embedRectOnScreen(b, dm.widthPixels, dm.heightPixels)) {
@@ -106,17 +112,46 @@ fun TaskEmbedWidget(
         val b   = screenBounds
         if (isEditing || packageName.isEmpty() || act == null || b == null) return@LaunchedEffect
         if (!embedRectOnScreen(b, dm.widthPixels, dm.heightPixels)) {
-            if (embedToken != 0) { TaskEmbedEngine.stop(embedToken); embedToken = 0; liveMode = null }
+            // Grace window before tearing down: an embedded task taking
+            // fullscreen focus relayouts the launcher grid for a frame or two
+            // (round-5 unit log: card oscillated 1189px <-> 1264px wide, each
+            // transient off-screen blip stopped the session -> destroy/re-embed
+            // loop forever). A real page swipe keeps the card off screen, so
+            // the re-check still tears down then.
+            kotlinx.coroutines.delay(400)
+            val b2 = screenBounds ?: return@LaunchedEffect
+            if (!embedRectOnScreen(b2, dm.widthPixels, dm.heightPixels)) {
+                if (embedToken != 0) { TaskEmbedEngine.stop(embedToken); embedToken = 0; liveMode = null }
+            }
         } else if (embedToken == 0) {
+            // Same settle window as the assignment effect: boot recompositions
+            // move the card by ~1 px per pass; embed only once bounds are calm.
+            kotlinx.coroutines.delay(350)
+            val b2 = screenBounds ?: return@LaunchedEffect
+            if (embedToken != 0 || !embedRectOnScreen(b2, dm.widthPixels, dm.heightPixels)) return@LaunchedEffect
             embedToken = TaskEmbedEngine.nextToken()
-            liveMode   = TaskEmbedEngine.embedWithToken(act, container, packageName, b, embedToken) { mode -> liveMode = mode }
+            liveMode   = TaskEmbedEngine.embedWithToken(act, container, packageName, b2, embedToken) { mode -> liveMode = mode }
         } else if (liveMode == EmbedMode.TASK_EMBEDDER || liveMode == EmbedMode.TASK_ORGANIZER) {
             TaskEmbedEngine.resize(embedToken, b.right - b.left, b.bottom - b.top)
         }
     }
 
-    DisposableEffect(embedToken) {
-        onDispose { if (embedToken != 0) { TaskEmbedEngine.stop(embedToken); embedToken = 0 } }
+    // Stop the session when THIS card leaves composition (page swipe-out,
+    // card delete, app exit). MUST be keyed on Unit, not embedToken:
+    // a token re-key runs onDispose AFTER embedToken was reassigned, and
+    // since embedToken is a State-backed property the lambda reads the NEW
+    // token — round-3/4 bench proved that self-destructed every session
+    // ~30 ms after embed (stop→purge→relaunch churn, surface never born).
+    // Session replacement itself is handled by the effects' explicit stop()
+    // of the OLD token before claiming a new one.
+    DisposableEffect(Unit) {
+        onDispose {
+            val t = embedToken
+            if (t != 0) {
+                android.util.Log.i("TaskEmbed", "card disposed: stop token=$t")
+                TaskEmbedEngine.stop(t); embedToken = 0
+            }
+        }
     }
 
     val pm    = context.packageManager
