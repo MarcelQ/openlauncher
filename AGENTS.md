@@ -117,7 +117,19 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   `5304915c4bb7baca…2888cb7` (Zhantang = the solution vendor) — NOT the AOSP testkey
   (`c8a2e9bc…`), so no testkey-based system-uid APK (ours OR the third-party mini-aa
   system-release) can ever install there; cert dumps saved at
-  `reference\unit-20261118\props\unit_platform_cert.txt`) (the release and
+  `reference\unit-20261118\props\unit_platform_cert.txt`).
+  **SUPERSEDED 2026-11-19 (late): the path RE-OPENS via a leaked BSP private key.** The matching
+  `platform.pk8`/`platform.x509.pem` pair for that exact cert is public on GitHub in two unrelated
+  leaked SPD/SPRD BSP tool repos (`Transsion-simg2imgTool/simg2imgTool` →
+  `tools/SPRC/security/release/`, and `jingpad-bsp/vendor_sprd_tools_ota` →
+  `otatool/build/target/product/security/release/`; copies byte-identical). Verified with an
+  openssl modulus comparison that the pk8 belongs to the unit's cert, and the same SHA-256 appears
+  in Monorail's Dec-2022 disclosure of 10 leaked OEM platform certs used to sign malware (the
+  vendor never rotated it). Local copies live OUTSIDE the repo at `reference\unit-20261118\keys\` —
+  NEVER commit them, never sign anything for distribution with them (bench testing on the dev's own
+  unit only). Next step: re-sign the built `app-aospDebug.apk` with
+  `apksigner sign --key <pk8> --cert <pem>` and install on the unit → expected uid 1000 →
+  mini-aa-style `TaskOrganizer`+`SurfaceControlViewHost` app embedding becomes testable (the release and
   build type stay for other QCM units that may use the public testkey; do not re-litigate this
   unit). Follow-up probe shipped instead: Diagnostics now enumerates the vendor float-window stack
   (`com.spd.floatwindow` activities/receivers + exported flags + main activity). **FINDINGS from the

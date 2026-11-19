@@ -111,6 +111,13 @@ Root is realistic because the bootloader is already unlocked and the build is de
   testkey-signed system-uid app (our aospDebug, or third-party launchers like mini-aa's
   system-release that embed app tasks via `TaskOrganizer`+`SurfaceControlViewHost`) is
   `INSTALL_FAILED_SHARED_USER_INCOMPATIBLE` here — do not bench-test those APKs again.
+  **UPDATE 2026-11-19: the "vendor key is unobtainable" premise is VOID — the matching
+  `platform.pk8` was found publicly leaked (two independent GitHub BSP-tool leaks, byte-identical
+  copies; cert digest also appears in Monorail's Dec-2022 leaked-OEM-cert disclosure; openssl
+  modulus check confirms key↔cert match). So a *Zhantang-re-signed* build (not testkey-signed)
+  should install as uid 1000. The testkey-APK verdict above still stands; re-signed builds are the
+  new open path — keys are kept OUTSIDE the repo (`reference\unit-20261118\keys\`), sign bench
+  APKs with `apksigner sign --key … --cert …` only, never commit or distribute those.**
 - `com.spd.floatwindow` interop (broken APK; service crash-loops; no app-window classes).
 - Broadcasting to vendor float-window receivers (its exported receivers are only
   BOOT/SCREEN_ON/BLUETOOTH/LOCALE; `FloatWindowService.onStartCommand` takes no extras).
