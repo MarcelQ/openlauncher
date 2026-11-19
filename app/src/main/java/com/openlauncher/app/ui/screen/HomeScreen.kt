@@ -53,6 +53,7 @@ import com.openlauncher.app.data.ResizeCorner
 import com.openlauncher.app.data.WidgetInstance
 import com.openlauncher.app.data.computeCornerResize
 import com.openlauncher.app.data.computeWidgetMove
+import com.openlauncher.app.data.embedPackageFor
 import com.openlauncher.app.data.instancesOnPage
 import com.openlauncher.app.data.resizePageLayout
 import com.openlauncher.app.model.NowPlayingState
@@ -148,8 +149,10 @@ fun HomeScreen(
     onVolumeUp: () -> Unit,
     onAssignPip: () -> Unit,
     onClearPip: () -> Unit,
-    onAssignEmbed: () -> Unit = {},
-    onClearEmbed: () -> Unit = {},
+    // EMBED callbacks carry the requesting card's WidgetInstance.id — several
+    // embed cards can each be assigned a different app and run concurrently.
+    onAssignEmbed: (String) -> Unit = {},
+    onClearEmbed: (String) -> Unit = {},
     onTapNowPlaying: () -> Unit,
     onResizeWidget: (id: String, gridX: Int, gridY: Int, spanX: Int, spanY: Int) -> Unit,
     onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
@@ -309,9 +312,9 @@ fun HomeScreen(
                 onMoveToPage        = { p -> contextMenuId = null; onMoveWidgetToPage(id, p) },
                 onAssignPip         = { contextMenuId = null; onAssignPip() },
                 onClearPip          = { contextMenuId = null; onClearPip() },
-                embedAppPackage     = settings.embedAppPackage,
-                onAssignEmbed       = { contextMenuId = null; onAssignEmbed() },
-                onClearEmbed        = { contextMenuId = null; onClearEmbed() },
+                embedAppPackage     = settings.embedPackageFor(id),
+                onAssignEmbed       = { contextMenuId = null; onAssignEmbed(id) },
+                onClearEmbed        = { contextMenuId = null; onClearEmbed(id) },
                 onSetClockStyle     = { onSetClockStyle(it) },
                 onSetVitalsAsBars   = { onSetVitalsAsBars(it) },
                 onSetSpeedometerDigitalOnly = { onSetSpeedometerDigitalOnly(it) },
@@ -418,7 +421,7 @@ private fun WidgetPageGrid(
     onAssignRadio: () -> Unit,
     onTpmsConnect: () -> Unit,
     onAssignPip: () -> Unit,
-    onAssignEmbed: () -> Unit,
+    onAssignEmbed: (String) -> Unit,
     onUpdateSoundPad: (index: Int, pad: com.openlauncher.app.data.SoundPadConfig) -> Unit
 ) {
     BoxWithConstraints(
@@ -714,11 +717,11 @@ private fun WidgetPageGrid(
                         modifier    = Modifier.fillMaxSize()
                     )
                     "EMBED_APP" -> TaskEmbedWidget(
-                        packageName = settings.embedAppPackage,
+                        packageName = settings.embedPackageFor(w.id),
                         accent      = accent,
                         isDayMode   = isDayMode,
                         isEditing   = editMode,
-                        onAssign    = onAssignEmbed,
+                        onAssign    = { onAssignEmbed(w.id) },
                         modifier    = Modifier.fillMaxSize()
                     )
                     "MAP_NATIVE" -> MapNativeWidget(
@@ -738,7 +741,7 @@ private fun WidgetPageGrid(
                 val showLabel = height >= HEADER_LABEL_MIN_H && !(
                     w.type == "NOW_PLAYING" && nowPlaying?.albumArt != null && nowPlaying.title.isNotEmpty()
                 ) && !(
-                    w.type == "EMBED_APP" && settings.embedAppPackage.isNotEmpty()
+                    w.type == "EMBED_APP" && settings.embedPackageFor(w.id).isNotEmpty()
                 )
                 if (showLabel) {
                     val labelColor = when {

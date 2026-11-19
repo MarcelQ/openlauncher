@@ -256,7 +256,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _nav.value = NavDestination.APP_LIBRARY
     }
 
-    fun startEmbedPicker() {
+    // Which EMBED card asked for the picker (WidgetInstance.id). The EMBED
+    // target alone can't say — several cards may embed different apps at once.
+    private var embedPickerCardId: String? = null
+
+    fun startEmbedPicker(cardId: String = "EMBED_APP") {
+        embedPickerCardId = cardId
         _appPickerTarget.value = AppPickerTarget.EMBED
         _nav.value = NavDestination.APP_LIBRARY
     }
@@ -271,7 +276,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             AppPickerTarget.CARPLAY      -> updateSettings { copy(carPlayPackage = app.packageName) }
             AppPickerTarget.ANDROID_AUTO -> updateSettings { copy(androidAutoPackage = app.packageName) }
             AppPickerTarget.PIP          -> updateSettings { copy(pipAppPackage = app.packageName) }
-            AppPickerTarget.EMBED        -> updateSettings { copy(embedAppPackage = app.packageName) }
+            AppPickerTarget.EMBED        -> {
+                val cardId = embedPickerCardId ?: "EMBED_APP"
+                updateSettings { copy(embedAppPackages = embedAppPackages + (cardId to app.packageName)) }
+            }
             AppPickerTarget.RADIO        -> updateSettings { copy(radioPackage = app.packageName) }
             null -> {}
         }
@@ -282,7 +290,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun clearCarPlayApp()      { updateSettings { copy(carPlayPackage = "") } }
     fun clearAndroidAutoApp()  { updateSettings { copy(androidAutoPackage = "") } }
     fun clearPipApp()          { updateSettings { copy(pipAppPackage = "") } }
-    fun clearEmbedApp()        { updateSettings { copy(embedAppPackage = "") } }
+    fun clearEmbedApp(cardId: String = "EMBED_APP") {
+        // Explicit "" per card: overrides the legacy global assignment for
+        // THIS card only (see embedPackageFor resolution rules).
+        updateSettings { copy(embedAppPackages = embedAppPackages + (cardId to "")) }
+    }
     fun clearRadioApp()        { updateSettings { copy(radioPackage = "") } }
 
     /**

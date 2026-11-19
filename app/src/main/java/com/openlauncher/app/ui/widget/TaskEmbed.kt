@@ -16,9 +16,22 @@ package com.openlauncher.app.ui.widget
  *    from the gating): `android.window.TaskEmbedder` — the vendor-relevant
  *    legacy embedding host (the ActivityView-era engine: prepareActivityOptions
  *    + startActivity + Host interface), `android.window.TaskOrganizer` with
- *    `registerOrganizer(int displayId)` and ITaskOrganizer callbacks that
- *    receive the task leash SurfaceControl directly, and
- *    `WindowContainerTransaction` (setBounds / setWindowingMode / reparent).
+ *    `registerOrganizer(int windowingMode)` (this fork RE-KEYS Q's displayId
+ *    signature to windowingMode — dex-verified from the locals table of both
+ *    the client method and the server `registerTaskOrganizer`) and
+ *    ITaskOrganizer callbacks that receive the task leash SurfaceControl
+ *    directly, and `WindowContainerTransaction` (setBounds / setWindowingMode /
+ *    reparent).
+ *  - SERVER-SIDE routing (same capture, services.jar): organizers for one
+ *    windowing mode live in a LinkedList (multiple registrations ALLOWED, only
+ *    a warning is logged), but each task binds to `peekLast()` — the LAST
+ *    registered organizer — at bind time. Hence concurrent sessions must not
+ *    pile onto TaskOrganizerTaskEmbedder blindly: the engine gives the first
+ *    session that engine and additional sessions VirtualDisplayTaskEmbedder,
+ *    whose private VirtualDisplay (createVirtualDisplay + setLaunchDisplayId +
+ *    registerTaskStackListener — dex-verified) can never collide AND keeps its
+ *    task RESUMED even unfocused (visible stack on its own display — the
+ *    native equivalent of mini-aa's "prevent the embedded app from stopping").
  * All of it is reached by reflection (absent from the compile SDK's
  * android.jar) — engine in TaskEmbedEngine.kt, device-verified only.
  *
@@ -35,18 +48,28 @@ enum class EmbedMode { TASK_EMBEDDER, TASK_ORGANIZER, FALLBACK_LAUNCH }
  *    TaskEmbedder host (surface creation, task creation, input forwarding all
  *    handled framework-side). It needs API 29+ (initialize() takes a
  *    SurfaceControl, which is public API 29+) and a fully on-screen card rect.
- *  - TASK_ORGANIZER is the fallback engine: register TaskOrganizer on the
- *    default display, launch normally, reparent the leash the callback hands
- *    us. Rendering proven by this shape; input routing is the open question,
- *    so it ranks below the embedder.
+ *  - TASK_ORGANIZER (the ROM's VirtualDisplayTaskEmbedder) is the fallback
+ *    engine: renders the task on a PRIVATE VirtualDisplay mirrored into the
+ *    host surface (guaranteed render; its task also stays RESUMED while
+ *    unfocused, input depends on the ROM's tap-exclude/key-event path).
  *  - FALLBACK_LAUNCH is always last: the card then behaves exactly like the
  *    APP OVERLAY card (freeform-over-launcher chain, fullscreen last).
  *  - On a non-system build (systemUid == false) the signature permissions are
  *    never granted, so we skip straight to the fallback and keep logs honest.
+ *  - [vdFirst] reorders the two live engines for ADDITIONAL concurrent
+ *    sessions: the ROM server binds each newly appeared task to the LAST
+ *    organizer registered for the embed windowing mode (LinkedList.peekLast,
+ *    dex-verified), so only one session should drive the TaskOrganizer engine
+ *    at a time; extra cards take their own private VirtualDisplay instead.
  */
-fun embedChain(systemUid: Boolean, sdkInt: Int, hasValidBounds: Boolean): List<EmbedMode> {
+fun embedChain(
+    systemUid: Boolean, sdkInt: Int, hasValidBounds: Boolean, vdFirst: Boolean = false
+): List<EmbedMode> {
     if (!systemUid || sdkInt < 29 || !hasValidBounds) return listOf(EmbedMode.FALLBACK_LAUNCH)
-    return listOf(EmbedMode.TASK_EMBEDDER, EmbedMode.TASK_ORGANIZER, EmbedMode.FALLBACK_LAUNCH)
+    return if (vdFirst)
+        listOf(EmbedMode.TASK_ORGANIZER, EmbedMode.TASK_EMBEDDER, EmbedMode.FALLBACK_LAUNCH)
+    else
+        listOf(EmbedMode.TASK_EMBEDDER, EmbedMode.TASK_ORGANIZER, EmbedMode.FALLBACK_LAUNCH)
 }
 
 /**

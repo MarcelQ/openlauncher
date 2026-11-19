@@ -41,18 +41,31 @@ import java.lang.reflect.Proxy
  *   start()/stop()/release(), isInitialized(), resize(w,h)-equivalents, and a
  *   TaskEmbedder$Host implemented here as a dynamic Proxy over the card view.
  *
- *   android.window.TaskOrganizer.registerOrganizer(int displayId) + manual
- *     leash reparent via reflectively-discovered SurfaceControl$Transaction
- *     ← engine 3 (fully manual fallback), then FALLBACK_LAUNCH (PipWidget
- *     chain) so the card is never dead.
+ *   android.window.TaskOrganizer.registerOrganizer(int windowingMode) (this
+ *     fork re-keys Q's displayId signature; server keeps a LinkedList per mode
+ *     and binds each new task to peekLast() — dex-verified) + manual leash
+ *     reparent via reflectively-discovered SurfaceControl$Transaction, then
+ *     FALLBACK_LAUNCH (PipWidget chain) so the card is never dead.
  *
  * Hidden-API gating is BLOCKED-flagged in the ROM dex, but uid 1000 callers
  * are exempt — which is why this only engages for the platform-signed
  * aospDebug build re-signed with the vendor platform key (see docs
  * float-window-research.md §F). Normal builds log the gate and fall back.
  *
- * One live session process-wide (prototype parity with the single
- * pip/embed app-package settings): most recent claimer wins.
+ * MULTI-SESSION: several EMBED cards can embed DIFFERENT apps concurrently
+ * (per-card assignment, AppSettings.embedAppPackages). The engine keys
+ * sessions by card token. Only one session runs the TaskOrganizer engine at a
+ * time (server peekLast() routing would otherwise cross-wire task→card
+ * binding); additional sessions get their own VirtualDisplayTaskEmbedder —
+ * a private VirtualDisplay per card, which also keeps each embedded app
+ * RESUMED while unfocused (the native answer to "the other one stops
+ * rendering when I focus this one" — mini-aa needs a keep-alive toggle for
+ * that; the ROM's display stack gives it for free).
+ * The register→launch sequence stays atomic per session: initialize()
+ * registers the organizer and startActivity() must follow before any other
+ * session registers (peekLast!), and initializeAndLaunch is ONE synchronous
+ * method called from surfaceCreated — all such callbacks run on the main
+ * thread, so two sessions can never interleave mid-sequence.
  *
  * Device-verified only; decision helpers in TaskEmbed.kt are JVM-tested.
  */
@@ -80,15 +93,17 @@ object TaskEmbedEngine {
         var releasedByUs: Boolean = false
     )
 
-    private var session: Session? = null
+    // All live embed sessions, keyed by card token (insertion-ordered for
+    // deterministic forensics). Multiple cards = multiple concurrent embeds.
+    private val sessions = LinkedHashMap<Int, Session>()
     private var tokenSeq = 0
 
     fun isLiveFor(token: Int, packageName: String): Boolean = synchronized(this) {
-        session?.let { it.token == token && it.packageName == packageName && it.mode != FALLBACK_LAUNCH } == true
+        sessions[token]?.let { it.packageName == packageName && it.mode != FALLBACK_LAUNCH } == true
     }
 
     fun stop(token: Int) = synchronized(this) {
-        if (session?.token == token) teardown(session!!)
+        sessions[token]?.let { teardown(it) }
     }
 
     fun nextToken(): Int = synchronized(this) { ++tokenSeq }
@@ -117,18 +132,44 @@ object TaskEmbedEngine {
         // TaskEmbedder for that would flicker the embedded task on the bench.
         // A RECREATED container (new FrameLayout) is deliberately NOT reused:
         // the engine's Host geometry + input window must track the live view.
+        var vdFirst = false
         synchronized(this) {
-            val prev = session
-            if (prev != null && prev.embedder != null && prev.mode != FALLBACK_LAUNCH &&
-                prev.packageName == packageName && prev.bounds == bounds && prev.container === container) {
+            // Purge sessions whose card container left the window: composable
+            // recreation during grid boot leaves old containers behind, and a
+            // live engine on a DEAD container both renders into nothing and
+            // keeps holding an organizer registration (peekLast!) that newer
+            // launches would bind to.
+            sessions.values
+                .filter { it.container != null && !it.container.isAttachedToWindow }
+                .toList()
+                .forEach { s ->
+                    TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: purged (card container detached)")
+                    teardown(s)
+                }
+
+            val prev = sessions.values.find {
+                it.embedder != null && it.mode != FALLBACK_LAUNCH &&
+                it.packageName == packageName && it.bounds == bounds && it.container === container
+            }
+            if (prev != null) {
                 prev.token = token
                 Log.i(TAG, "reusing ${prev.mode} session for $packageName (token $token)")
                 return prev.mode
             }
-            session?.let { teardown(it) }
+
+            // Same CARD re-embedding: tear down only THIS card's old session —
+            // other cards' embeds keep running untouched (multi-session).
+            sessions[token]?.let { teardown(it) }
+
+            // One session on the windowing-mode organizer at a time (server
+            // binds each new task to the LAST registered organizer): extra
+            // concurrent sessions prefer their own private VirtualDisplay.
+            vdFirst = sessions.values.any { it.mode == TASK_EMBEDDER }
+            if (vdFirst)
+                TaskEmbedLog.record("${timeStamp()} $packageName :: organizer engine busy — VirtualDisplay engine first (multi-embed)")
         }
 
-        for (mode in embedChain(systemUid, sdk, bounds.isValid && embedEnginesAllowed(systemUid, sdk, manage))) {
+        for (mode in embedChain(systemUid, sdk, bounds.isValid && embedEnginesAllowed(systemUid, sdk, manage), vdFirst)) {
             try {
                 when (mode) {
                     TASK_EMBEDDER    -> return startViaTaskEmbedder(activity, container, packageName, bounds, token, TE_IMPL_CLASS, onOutcome)
@@ -140,7 +181,7 @@ object TaskEmbedEngine {
                         // fire on every (re)composition that re-claims a token.
                         TaskEmbedLog.record("${timeStamp()} $packageName :: FALLBACK_LAUNCH (tap to open)")
                         Log.i(TAG, "FALLBACK_LAUNCH for $packageName (no auto-launch; tap opens)")
-                        synchronized(this) { session = Session(token, packageName, bounds, FALLBACK_LAUNCH, null, null, container) }
+                        synchronized(this) { sessions[token] = Session(token, packageName, bounds, FALLBACK_LAUNCH, null, null, container) }
                         return FALLBACK_LAUNCH
                     }
                 }
@@ -197,7 +238,7 @@ object TaskEmbedEngine {
                         // to tap-to-open so it is never a dead black surface.
                         // Releases from our own teardown are expected and skip.
                         val unexpected = synchronized(this@TaskEmbedEngine) {
-                            session?.takeIf { it.token == token && !it.releasedByUs }
+                            sessions[token]?.takeIf { !it.releasedByUs }
                                 ?.also { it.mode = FALLBACK_LAUNCH }
                         }
                         if (unexpected != null) {
@@ -224,7 +265,7 @@ object TaskEmbedEngine {
         container.addView(anchor, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         val mode = if (implCls.name == TE_IMPL_CLASS) TASK_EMBEDDER else TASK_ORGANIZER
-        synchronized(this) { session = Session(token, pkg, bounds, mode, embedder, hostProxy, container) }
+        synchronized(this) { sessions[token] = Session(token, pkg, bounds, mode, embedder, hostProxy, container) }
 
         anchor.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
@@ -235,7 +276,7 @@ object TaskEmbedEngine {
                     Log.w(TAG, "host surface init failed for $pkg", e)
                     // Degrade THIS card to the tap-to-open overlay state so it
                     // is never a dead surface.
-                    synchronized(this@TaskEmbedEngine) { session?.takeIf { it.token == token }?.mode = FALLBACK_LAUNCH }
+                    synchronized(this@TaskEmbedEngine) { sessions[token]?.mode = FALLBACK_LAUNCH }
                     onAsyncFail(FALLBACK_LAUNCH)
                 }
             }
@@ -285,7 +326,7 @@ object TaskEmbedEngine {
 
     /** Card resized while an embed is live: ask the framework to resize the task. */
     fun resize(token: Int, width: Int, height: Int) {
-        val s = synchronized(this) { session?.takeIf { it.token == token } } ?: return
+        val s = synchronized(this) { sessions[token] } ?: return
         val e = s.embedder ?: return
         try {
             e.javaClass.getMethod("resizeTask", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
@@ -319,7 +360,7 @@ object TaskEmbedEngine {
             }
         } catch (e: Exception) { Log.w(TAG, "embedder teardown: ${e.javaClass.simpleName}: ${e.message}") }
         try { s.container?.removeAllViews() } catch (_: Exception) {}
-        if (session === s) session = null
+        sessions.remove(s.token)
     }
 
     /** Card-adjacent relaunch: engine stop + re-embed happens via the widget. */

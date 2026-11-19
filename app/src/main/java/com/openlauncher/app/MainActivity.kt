@@ -283,8 +283,8 @@ class MainActivity : ComponentActivity() {
                                         onVolumeUp          = vm::volumeUp,
                                         onAssignPip         = { vm.startPipPicker() },
                                         onClearPip          = { vm.clearPipApp() },
-                                        onAssignEmbed       = { vm.startEmbedPicker() },
-                                        onClearEmbed        = { vm.clearEmbedApp() },
+                                        onAssignEmbed       = { id -> vm.startEmbedPicker(id) },
+                                        onClearEmbed        = { id -> vm.clearEmbedApp(id) },
                                         onTapNowPlaying     = {
                                             val pkg = nowPlaying?.controller?.packageName
                                             if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)

@@ -46,6 +46,26 @@ class TaskEmbedTest {
     }
 
     @Test
+    fun `additional concurrent session prefers its own VirtualDisplay engine`() {
+        // Server binds each new task to the LAST organizer registered for the
+        // embed windowing mode (peekLast) — a second default-display embedder
+        // would cross-wire card↔task binding, so extra sessions go first-VD.
+        assertEquals(
+            listOf(EmbedMode.TASK_ORGANIZER, EmbedMode.TASK_EMBEDDER, EmbedMode.FALLBACK_LAUNCH),
+            embedChain(systemUid = true, sdkInt = 30, hasValidBounds = true, vdFirst = true)
+        )
+        // The hint never bypasses the honest gates:
+        assertEquals(
+            listOf(EmbedMode.FALLBACK_LAUNCH),
+            embedChain(systemUid = false, sdkInt = 30, hasValidBounds = true, vdFirst = true)
+        )
+        assertEquals(
+            listOf(EmbedMode.FALLBACK_LAUNCH),
+            embedChain(systemUid = true, sdkInt = 30, hasValidBounds = false, vdFirst = true)
+        )
+    }
+
+    @Test
     fun `engines only engage at system uid with stack management granted`() {
         assertTrue(embedEnginesAllowed(systemUid = true,  sdkInt = 30, canManageActivities = true))
         assertFalse(embedEnginesAllowed(systemUid = false, sdkInt = 30, canManageActivities = true))

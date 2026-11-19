@@ -88,8 +88,15 @@ data class AppSettings(
     val showPip: Boolean = false,
     val pipAppPackage: String = "",
     // App rendered LIVE inside the EMBED card (system-uid engines only; the
-    // card degrades to APP OVERLAY behaviour on normal builds)
+    // card degrades to APP OVERLAY behaviour on normal builds). LEGACY single
+    // assignment: applies to every EMBED card without an entry below.
     val embedAppPackage: String = "",
+    // Per-card EMBED assignments (WidgetInstance.id → package). An explicit
+    // "" means the card was deliberately cleared and overrides the legacy key.
+    // Multiple embed cards then run CONCURRENTLY — the engine gives one card
+    // the ROM's TaskOrganizer engine and the others their own private
+    // VirtualDisplay engine (see TaskEmbedEngine docs).
+    val embedAppPackages: Map<String, String> = emptyMap(),
     // Head unit's radio app — mirrored & controlled via its MediaSession
     val radioPackage: String = "",
     val onboardingCompleted: Boolean = false,
@@ -160,3 +167,31 @@ fun defaultShortcuts() = listOf(
 
 /** True while at least one card of [type] is on any page (drives TPMS auto-connect, auto-brightness…). */
 fun AppSettings.hasWidgetType(type: String): Boolean = widgets.any { it.type == type }
+
+/**
+ * Resolve the app assigned to one EMBED card by its WidgetInstance.id:
+ *  - the per-card entry wins — an explicit "" (cleared on that card) hides
+ *    the assignment even when the legacy global key is set;
+ *  - otherwise the legacy single-app key (embedAppPackage) applies to every
+ *    EMBED card, keeping pre-per-card installs working unchanged.
+ * Pure rules; JVM-tested (EmbedAssignmentTest).
+ */
+fun AppSettings.embedPackageFor(cardId: String): String {
+    embedAppPackages[cardId]?.let { return it }
+    return embedAppPackage
+}
+
+/**
+ * DataStore stores primitives only: persist the assignment map as `id=pkg`
+ * lines. Neither widget ids nor Android package names contain '=' or newline.
+ */
+fun serializeEmbedAssignments(map: Map<String, String>): String =
+    map.entries.sortedBy { it.key }.joinToString("\n") { "${it.key}=${it.value}" }
+
+fun parseEmbedAssignments(stored: String): Map<String, String> =
+    stored.lineSequence()
+        .mapNotNull { line ->
+            val i = line.indexOf('=')
+            if (i <= 0) null else line.substring(0, i) to line.substring(i + 1)
+        }
+        .toMap()

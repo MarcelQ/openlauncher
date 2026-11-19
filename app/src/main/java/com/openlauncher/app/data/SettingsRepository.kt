@@ -50,6 +50,7 @@ class SettingsRepository(private val context: Context) {
         val SHOW_PIP              = booleanPreferencesKey("show_pip")
         val PIP_APP_PACKAGE       = stringPreferencesKey("pip_app_package")
         val EMBED_APP_PACKAGE     = stringPreferencesKey("embed_app_package")
+        val EMBED_APP_PACKAGES    = stringPreferencesKey("embed_app_packages")
         val RADIO_PACKAGE         = stringPreferencesKey("radio_package")
         val ONBOARDING_COMPLETED  = booleanPreferencesKey("onboarding_completed")
         val COMPASS_OFFSET        = floatPreferencesKey("compass_offset")
@@ -202,6 +203,7 @@ class SettingsRepository(private val context: Context) {
                 showPip          = prefs[Keys.SHOW_PIP]         ?: defaults.showPip,
                 pipAppPackage    = prefs[Keys.PIP_APP_PACKAGE]  ?: defaults.pipAppPackage,
                 embedAppPackage  = prefs[Keys.EMBED_APP_PACKAGE] ?: defaults.embedAppPackage,
+                embedAppPackages = parseEmbedAssignments(prefs[Keys.EMBED_APP_PACKAGES] ?: ""),
                 radioPackage     = prefs[Keys.RADIO_PACKAGE]    ?: defaults.radioPackage,
                 onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: defaults.onboardingCompleted,
                 compassOffset    = prefs[Keys.COMPASS_OFFSET]    ?: defaults.compassOffset,
@@ -284,6 +286,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SHOW_PIP]           = s.showPip
             prefs[Keys.PIP_APP_PACKAGE]    = s.pipAppPackage
             prefs[Keys.EMBED_APP_PACKAGE]  = s.embedAppPackage
+            prefs[Keys.EMBED_APP_PACKAGES] = serializeEmbedAssignments(s.embedAppPackages)
             prefs[Keys.RADIO_PACKAGE]      = s.radioPackage
             prefs[Keys.ONBOARDING_COMPLETED] = s.onboardingCompleted
             prefs[Keys.COMPASS_OFFSET]     = s.compassOffset
