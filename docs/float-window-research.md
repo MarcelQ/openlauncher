@@ -204,7 +204,7 @@ authoritative API inventory for this API 30 SPD fork. Do NOT code against newer-
     SurfaceControl is handed to the callback DIRECTLY (no rootSurfaceControl field).
   - `WindowContainerTransaction` (setBounds/setWindowingMode/reparent) for resize-follows-card.
 - Hidden-API flags are 0x0002 (BLOCKED) but uid 1000 is exempt from gating - reflection is
-  the access path, and the leaked Zhantang platform key (�F follow-up, 2026-11-19) is what
+  the access path, and the leaked Zhantang platform key (�F follow-up, 2026-11-19) is what
   gets us uid 1000.
 
 **EMBED card shipped on `dev` (9a526ba, prototype):** grid type `EMBED_APP`, DataStore key
@@ -216,9 +216,29 @@ in `ui/widget/TaskEmbed.kt` (10 JVM tests), Diagnostics prints the TaskEmbedLog 
 
 **AVD-proven (API 37, uid!=1000 = negative control):** honest gate line, zero launches on
 assignment, tap launches at card rect, "TAP TO OPEN (OVERLAY MODE)" state, Diagnostics ring
-renders. **Bench-only verdicts (queued for unit power-up):** install the Zhantang-re-signed
-aospDebug (staged at `reference\unit-20261118\keys\openlauncher-aosp-zhantang-signed.apk`,
-rebuilt from 9a526ba) -> expect Success + uid 1000 in Diagnostics -> add EMBED card -> does
-TaskOrganizerTaskEmbedder actually show the task + forward touches (dumpsys window + eyes);
-then WindowContainerTransaction.setBounds to follow card resizes; VirtualDisplayTaskEmbedder
-as the guaranteed-render fallback.
+renders. **Bench round 1 verdict (unit, 2026-11-19, photo):** the Zhantang re-signed aospDebug INSTALLED
+on the unit (first time any APK has installed against that cert) and Maps appeared filling the
+EMBED card AREA — but behaving like the OVERLAY card (movable window, pushed down by the card
+caption): the engine chain never engaged because the first engine skipped
+`initialize(SurfaceControl)` (it must be fed the anchor SurfaceView's surface from
+surfaceCreated - async!), so the freeform fallback showed. Side-finding worth its weight:
+**at uid 1000 this SPD ROM no longer silently downgrades freeform launch to fullscreen** (the
+§D blocker is privilege-based, not universal) — round 2 (f95907a) feeds initialize correctly,
+hides the caption on assigned cards, gates embed rects fully on-screen (fixes "can't sit on
+page 2": pager lays off-page cards out at off-screen coords), resizes live tasks via
+`resizeTask(II)`, flips the card back to tap-to-open when the task dies (Listener onReleased),
+and draws a green/amber link-state dot so embed vs overlay is never a guess.
+
+**Bench-only verdicts still queued:** does the live `TaskEmbedder` surface actually pin
+(not-draggable) inside the card + forward touches; page-2 card alive on swipe-in; `resizeTask`
+follows the grid; Diagnostics embed ring (12 entries) names any method the real ROM refuses.
+
+**Bench file delivery (verified 2026-11-19, no firewall admin needed):**
+`tailscale file cp <apk> "iphone-15:"` from the workstation -> Files section of the Tailscale
+iOS app -> relay to the unit via LocalSend (or USB). The unit can also be a Taildrop target
+directly if the Tailscale android node "shield" turns out to be it.
+
+**Known churn (round-2 watch-out):** the card composable is recreated during grid boot
+(~1 s after start), re-claiming the engine 2-3 times before settling; harmless for the
+fallback, but on the unit the ring will show TaskEmbedder teardown+restart cycles at boot —
+if the ROM dislikes that, stabilize the container identity first.

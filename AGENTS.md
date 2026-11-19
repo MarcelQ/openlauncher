@@ -40,8 +40,9 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   framework-free helpers in `ui\widget\PipFreeform.kt`; the Context/ActivityOptions launch chain
   in `ui\widget\PipWidget.kt` is device-verified only); plus the device report's freeform verdict /
   resizability / su-summary helpers (`DeviceInfoReportTest.kt`);
-  and for the APP EMBED card's pure decision core — engine-chain order, system-uid/API/perms
-  gates, API-30 `MANAGE_ACTIVITY_STACKS` vs API-31 name, never-dead-tap fallback, log ring
+  and for the APP EMBED card's pure decision core — engine-chain order, system-uid/API(29+)/perms
+  gates, API-30 `MANAGE_ACTIVITY_STACKS` vs API-31 name, fully-on-screen embed-rect rule
+  (multi-page pagers lay off-page cards out off-screen), never-dead-tap fallback, log ring
   (`app\src\test\java\com\openlauncher\app\ui\widget\TaskEmbedTest.kt`; framework-free
   `ui\widget\TaskEmbed.kt`; the reflective engine `ui\widget\TaskEmbedEngine.kt` is
   device-verified only — see `docs\float-window-research.md` §G for the ROM dex ground truth:
@@ -137,7 +138,10 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   in Monorail's Dec-2022 disclosure of 10 leaked OEM platform certs used to sign malware (the
   vendor never rotated it). Local copies live OUTSIDE the repo at `reference\unit-20261118\keys\` —
   NEVER commit them, never sign anything for distribution with them (bench testing on the dev's own
-  unit only). Next step: re-sign the built `app-aospDebug.apk` with
+  unit only). DONE 2026-11-19: re-signed + installed on the unit — install SUCCEEDED (leaked key
+  works end-to-end), and at uid 1000 the ROM no longer downgrades freeform launch (the round-1
+  EMBED test showed Maps as a movable window because the engine had not engaged yet, see §G).
+  Next step: re-sign the built `app-aospDebug.apk` with
   `apksigner sign --key <pk8> --cert <pem>` and install on the unit → expected uid 1000 →
   app embedding becomes testable via the ROM's OWN embedding stack — NOT mini-aa's
    `TaskOrganizer`+`SurfaceControlViewHost` (SurfaceControlViewHost/ActivityView/LaunchCookie do

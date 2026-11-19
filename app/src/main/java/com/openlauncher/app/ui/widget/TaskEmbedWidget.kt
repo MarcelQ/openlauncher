@@ -12,8 +12,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
@@ -21,6 +23,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -169,6 +173,32 @@ fun TaskEmbedWidget(
                     color = accent.copy(alpha = 0.6f), fontSize = 7.sp, letterSpacing = 1.sp, textAlign = TextAlign.Center
                 )
             }
+        }
+
+        // Link-state glyph (same visual language as the TPMS footer glyph):
+        // a real in-card embed vs the overlay fallback must never be a guess.
+        if (packageName.isNotEmpty() && liveMode != null && !isEditing) {
+            val mode = liveMode
+            val dotColor = when (mode) {
+                EmbedMode.TASK_EMBEDDER, EmbedMode.TASK_ORGANIZER -> Color(0xFF33C14A) // live surface
+                FALLBACK_LAUNCH                                   -> Color(0xFFC9A227) // overlay tap-open
+                null                                              -> Color(0xFF777777)
+            }
+            val dotDesc = when (mode) {
+                EmbedMode.TASK_EMBEDDER  -> "Embed: live in-card surface (TaskEmbedder)"
+                EmbedMode.TASK_ORGANIZER -> "Embed: live in-card surface (VirtualDisplay)"
+                FALLBACK_LAUNCH          -> "Embed: overlay fallback, tap opens the app"
+                null                     -> "Embed: starting"
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(9.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+                    .semantics { contentDescription = dotDesc }
+            )
         }
     }
 }

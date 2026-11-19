@@ -95,10 +95,10 @@ class TaskEmbedTest {
 
     @Test
     fun `embed log ring keeps the newest entries only`() {
-        repeat(10) { TaskEmbedLog.record("entry-$it") }
+        repeat(20) { TaskEmbedLog.record("entry-$it") }
         val snap = TaskEmbedLog.snapshot()
-        assertEquals(6, snap.size)
-        assertEquals("entry-9", snap.last())
-        assertEquals("entry-4", snap.first())
+        assertEquals(12, snap.size)
+        assertEquals("entry-19", snap.last())
+        assertEquals("entry-8", snap.first())
     }
 }

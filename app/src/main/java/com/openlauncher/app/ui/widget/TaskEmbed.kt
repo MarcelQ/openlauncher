@@ -107,7 +107,10 @@ fun embedFallbackTap(isEditing: Boolean, hasApp: Boolean): PipLaunchMode? {
  * a head-unit report answers "which engine threw what" without adb attached.
  */
 object TaskEmbedLog {
-    private const val MAX_ENTRIES = 6
+    // 12: a full engine attempt writes ~4 entries (gate, constructed,
+    // launched/failed, outcome) and the bench iterates over two engines —
+    // 6 was too small for round-3 forensics.
+    private const val MAX_ENTRIES = 12
     private val entries = ArrayDeque<String>()
 
     fun record(entry: String) = synchronized(this) {

@@ -74,7 +74,10 @@ object TaskEmbedEngine {
         val embedder: Any?,
         val hostProxy: Any?,
         val container: ViewGroup?,
-        var organizer: Any? = null
+        var organizer: Any? = null,
+        // true only while WE release the embedder (teardown): the Listener's
+        // onReleased must not flip a session we are intentionally closing.
+        var releasedByUs: Boolean = false
     )
 
     private var session: Session? = null
@@ -188,7 +191,23 @@ object TaskEmbedEngine {
             InvocationHandler { _, m, a ->
                 when (m.name) {
                     "onInitialized"     -> { TaskEmbedLog.record("${timeStamp()} $pkg :: ${implCls.simpleName} onInitialized"); null }
-                    "onReleased"        -> { TaskEmbedLog.record("${timeStamp()} $pkg :: ${implCls.simpleName} onReleased"); null }
+                    "onReleased" -> {
+                        // The embedded task died (app quit / ROM killed it /
+                        // back at task root released it): flip THIS card back
+                        // to tap-to-open so it is never a dead black surface.
+                        // Releases from our own teardown are expected and skip.
+                        val unexpected = synchronized(this@TaskEmbedEngine) {
+                            session?.takeIf { it.token == token && !it.releasedByUs }
+                                ?.also { it.mode = FALLBACK_LAUNCH }
+                        }
+                        if (unexpected != null) {
+                            TaskEmbedLog.record("${timeStamp()} $pkg :: task released by app/ROM — card back to tap-to-open")
+                            onAsyncFail(FALLBACK_LAUNCH)
+                        } else {
+                            TaskEmbedLog.record("${timeStamp()} $pkg :: ${implCls.simpleName} onReleased (our teardown)")
+                        }
+                        null
+                    }
                     "onTaskCreated"     -> { TaskEmbedLog.record("${timeStamp()} $pkg :: task created id=${a?.getOrNull(0)} comp=${a?.getOrNull(1)}"); null }
                     "onBackPressedOnTaskRoot" -> { TaskEmbedLog.record("${timeStamp()} $pkg :: back-press at task root"); null }
                     else -> null
@@ -292,6 +311,7 @@ object TaskEmbedEngine {
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private fun teardown(s: Session) {
+        s.releasedByUs = true
         try {
             s.embedder?.let { e ->
                 e.javaClass.getMethod("stop").invoke(e)
