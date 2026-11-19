@@ -183,3 +183,42 @@ Root is realistic because the bootloader is already unlocked and the build is de
 - AVD-verified: tiles, marker, lat/lon line, chips placed, NAVIGATE→Maps. Head-unit GPU
   cost and real GPS NOT verified yet (AVD only). Not merged to `dev` — owner review first;
   CI only builds dev/main pushes + PRs, so review happens on draft PR #1 (artifact from that run).
+
+## G. In-card app embedding - ROM dex ground truth + EMBED card (2026-11-19)
+
+**framework.jar dex dump (captured ROM, `tars/system_key.tgz`, dexdump 2026-11-19) - the
+authoritative API inventory for this API 30 SPD fork. Do NOT code against newer-AOSP shapes:**
+- ABSENT: `android.service.voice.ActivityView`, `android.window.LaunchCookie`,
+  `android.view.SurfaceControlViewHost` (the mini-aa technique does not exist as a public-ish
+  framework API here).
+- PRESENT (all hiddenapi-BLOCKED, uid-1000-exempt):
+  - `android.window.TaskEmbedder` (abstract; `prepareActivityOptions`/`startActivity`/
+    `start`/`stop`/`release`, `TaskEmbedder$Host` = canReceivePointerEvents/getHeight/getWidth/
+    getPositionInWindow/getScreenBounds/getScreenToTaskMatrix/getTapExcludeRegion/getWindow(IWindow)/
+    post, `$Listener` = onInitialized/onReleased/onTaskCreated/onBackPressedOnTaskRoot).
+    This is the ActivityView-era embedding engine, backported/kept by the vendor.
+  - Concrete `TaskOrganizerTaskEmbedder` (ctor `(Context, TaskEmbedder$Host)`) and
+    `VirtualDisplayTaskEmbedder`.
+  - `TaskOrganizer.registerOrganizer(int displayId)` + `ITaskOrganizer.onTaskAppeared(
+    ActivityManager$RunningTaskInfo, SurfaceControl)` - Android-11 shape: the task leash
+    SurfaceControl is handed to the callback DIRECTLY (no rootSurfaceControl field).
+  - `WindowContainerTransaction` (setBounds/setWindowingMode/reparent) for resize-follows-card.
+- Hidden-API flags are 0x0002 (BLOCKED) but uid 1000 is exempt from gating - reflection is
+  the access path, and the leaked Zhantang platform key (�F follow-up, 2026-11-19) is what
+  gets us uid 1000.
+
+**EMBED card shipped on `dev` (9a526ba, prototype):** grid type `EMBED_APP`, DataStore key
+`embed_app_package`. Chain: `TASK_EMBEDDER` (TaskOrganizerTaskEmbedder) -> `TASK_ORGANIZER`
+(VirtualDisplayTaskEmbedder) -> `FALLBACK_LAUNCH` (never a dead card: card becomes
+"TAP TO OPEN (OVERLAY MODE)" driving PipWidget's freeform chain, tap-only - NO auto-launch).
+Engine in `ui/widget/TaskEmbedEngine.kt` (pure reflection + dynamic Proxy Host), decisions
+in `ui/widget/TaskEmbed.kt` (10 JVM tests), Diagnostics prints the TaskEmbedLog ring.
+
+**AVD-proven (API 37, uid!=1000 = negative control):** honest gate line, zero launches on
+assignment, tap launches at card rect, "TAP TO OPEN (OVERLAY MODE)" state, Diagnostics ring
+renders. **Bench-only verdicts (queued for unit power-up):** install the Zhantang-re-signed
+aospDebug (staged at `reference\unit-20261118\keys\openlauncher-aosp-zhantang-signed.apk`,
+rebuilt from 9a526ba) -> expect Success + uid 1000 in Diagnostics -> add EMBED card -> does
+TaskOrganizerTaskEmbedder actually show the task + forward touches (dumpsys window + eyes);
+then WindowContainerTransaction.setBounds to follow card resizes; VirtualDisplayTaskEmbedder
+as the guaranteed-render fallback.
