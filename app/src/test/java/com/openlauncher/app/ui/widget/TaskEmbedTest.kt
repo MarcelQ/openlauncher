@@ -21,8 +21,9 @@ class TaskEmbedTest {
     }
 
     @Test
-    fun `pre-ActivityView SDK falls back`() {
+    fun `pre-API-29 SDK falls back (initialize needs the SurfaceControl public API)`() {
         assertEquals(listOf(EmbedMode.FALLBACK_LAUNCH), embedChain(systemUid = true, sdkInt = 25, hasValidBounds = true))
+        assertEquals(listOf(EmbedMode.FALLBACK_LAUNCH), embedChain(systemUid = true, sdkInt = 28, hasValidBounds = true))
     }
 
     @Test
@@ -36,6 +37,10 @@ class TaskEmbedTest {
         // overlay launch last — matches the dev's API 30 SPD framework dump.
         assertEquals(
             listOf(EmbedMode.TASK_EMBEDDER, EmbedMode.TASK_ORGANIZER, EmbedMode.FALLBACK_LAUNCH),
+            embedChain(systemUid = true, sdkInt = 29, hasValidBounds = true)
+        )
+        assertEquals(
+            listOf(EmbedMode.TASK_EMBEDDER, EmbedMode.TASK_ORGANIZER, EmbedMode.FALLBACK_LAUNCH),
             embedChain(systemUid = true, sdkInt = 30, hasValidBounds = true)
         )
     }
@@ -46,6 +51,20 @@ class TaskEmbedTest {
         assertFalse(embedEnginesAllowed(systemUid = false, sdkInt = 30, canManageActivities = true))
         assertFalse(embedEnginesAllowed(systemUid = true,  sdkInt = 30, canManageActivities = false))
         assertFalse(embedEnginesAllowed(systemUid = true,  sdkInt = 21, canManageActivities = true))
+    }
+
+    @Test
+    fun `embed rect must be fully on screen (page-2 cards are laid out off-screen)`() {
+        val screen = 1280 to 720
+        assertTrue(embedRectOnScreen(FreeformBounds(970, 364, 1272, 712), screen.first, screen.second))
+        // page-2 pager offset: card pushed fully past the right edge
+        assertFalse(embedRectOnScreen(FreeformBounds(1280, 364, 1582, 712), screen.first, screen.second))
+        // page-0 offset to the left (previous page)
+        assertFalse(embedRectOnScreen(FreeformBounds(-302, 364, 0, 712), screen.first, screen.second))
+        // bottom overflowing the panel
+        assertFalse(embedRectOnScreen(FreeformBounds(0, 500, 300, 721), screen.first, screen.second))
+        // zero/invalid rect
+        assertFalse(embedRectOnScreen(FreeformBounds(0, 0, 0, 0), screen.first, screen.second))
     }
 
     @Test

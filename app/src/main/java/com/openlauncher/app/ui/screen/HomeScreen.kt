@@ -730,10 +730,15 @@ private fun WidgetPageGrid(
                     )
                 }
 
-                // Label — hide when album art fills the widget background, and
-                // on dense grids where the cell is too short for the caption
+                // Label — hide when album art fills the widget background, on
+                // dense grids where the cell is too short for the caption, and
+                // on ASSIGNED EMBED cards (the embedded app draws its own
+                // chrome; a launcher caption floating over its surface only
+                // clutters — unassigned cards keep it for the placeholder).
                 val showLabel = height >= HEADER_LABEL_MIN_H && !(
                     w.type == "NOW_PLAYING" && nowPlaying?.albumArt != null && nowPlaying.title.isNotEmpty()
+                ) && !(
+                    w.type == "EMBED_APP" && settings.embedAppPackage.isNotEmpty()
                 )
                 if (showLabel) {
                     val labelColor = when {

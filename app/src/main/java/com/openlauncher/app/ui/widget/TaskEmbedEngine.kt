@@ -11,6 +11,7 @@ import android.graphics.Rect
 import android.graphics.Region
 import android.os.Process
 import android.util.Log
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
@@ -89,8 +90,13 @@ object TaskEmbedEngine {
 
     fun nextToken(): Int = synchronized(this) { ++tokenSeq }
 
-    /** (Re)embed [packageName] into card [container] under a caller-claimed token. */
-    fun embedWithToken(activity: Activity, container: FrameLayout, packageName: String, bounds: FreeformBounds, token: Int): EmbedMode {
+    /** (Re)embed [packageName] into card [container] under a caller-claimed token.
+     *  [onOutcome] fires later if an engine that reported success then fails on
+     *  its async surface step — the widget uses it to flip to tap-to-open. */
+    fun embedWithToken(
+        activity: Activity, container: FrameLayout, packageName: String,
+        bounds: FreeformBounds, token: Int, onOutcome: (EmbedMode) -> Unit = {}
+    ): EmbedMode {
         val granted = embedPermissions(activity)
         val systemUid = Process.myUid() == 1000
         val manage = granted.contains(PERM_MANAGE_ACTIVITY_TASKS) || granted.contains(PERM_MANAGE_ACTIVITY_STACKS)
@@ -122,8 +128,8 @@ object TaskEmbedEngine {
         for (mode in embedChain(systemUid, sdk, bounds.isValid && embedEnginesAllowed(systemUid, sdk, manage))) {
             try {
                 when (mode) {
-                    TASK_EMBEDDER    -> return startViaTaskEmbedder(activity, container, packageName, bounds, token, TE_IMPL_CLASS)
-                    TASK_ORGANIZER   -> return startViaTaskEmbedder(activity, container, packageName, bounds, token, TE_VD_CLASS)
+                    TASK_EMBEDDER    -> return startViaTaskEmbedder(activity, container, packageName, bounds, token, TE_IMPL_CLASS, onOutcome)
+                    TASK_ORGANIZER   -> return startViaTaskEmbedder(activity, container, packageName, bounds, token, TE_VD_CLASS, onOutcome)
                     FALLBACK_LAUNCH  -> {
                         // NO auto-launch: the card shows its icon + "TAP TO OPEN
                         // (OVERLAY MODE)" and the widget's click handler runs
@@ -145,7 +151,8 @@ object TaskEmbedEngine {
 
     // ── engines 1+2: the ROM's own TaskEmbedder implementations ──────────────
     private fun startViaTaskEmbedder(
-        activity: Activity, container: FrameLayout, pkg: String, bounds: FreeformBounds, token: Int, implClass: String
+        activity: Activity, container: FrameLayout, pkg: String, bounds: FreeformBounds,
+        token: Int, implClass: String, onAsyncFail: (EmbedMode) -> Unit
     ): EmbedMode {
         val hostCls  = Class.forName(TE_HOST_ITF)
         val baseCls  = Class.forName(TE_HOST_CLASS)
@@ -189,35 +196,84 @@ object TaskEmbedEngine {
             })
         baseCls.getMethod("setListener", listenerCls).invoke(embedder, listener)
 
-        // The embedder needs a surface anchor: attach a SurfaceView whose
-        // surface the implementation reparents the task leash under.
+        // Anchor SurfaceView: the embedder's initialize() needs ITS surface,
+        // which Android creates asynchronously — so initialize + start +
+        // launch run from surfaceCreated, not synchronously here (calling
+        // start() before initialize was the bench bug: the engine chain
+        // "succeeded" without a host surface and the card fell back).
         val anchor = SurfaceView(activity)
         container.addView(anchor, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        baseCls.getMethod("start").invoke(embedder)
+        val mode = if (implCls.name == TE_IMPL_CLASS) TASK_EMBEDDER else TASK_ORGANIZER
+        synchronized(this) { session = Session(token, pkg, bounds, mode, embedder, hostProxy, container) }
+
+        anchor.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                try {
+                    initializeAndLaunch(activity, baseCls, embedder, anchor, pkg)
+                } catch (e: Exception) {
+                    TaskEmbedLog.record("${timeStamp()} $pkg :: ${implCls.simpleName} host-surface init failed(${e.javaClass.simpleName}: ${e.message})")
+                    Log.w(TAG, "host surface init failed for $pkg", e)
+                    // Degrade THIS card to the tap-to-open overlay state so it
+                    // is never a dead surface.
+                    synchronized(this@TaskEmbedEngine) { session?.takeIf { it.token == token }?.mode = FALLBACK_LAUNCH }
+                    onAsyncFail(FALLBACK_LAUNCH)
+                }
+            }
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                TaskEmbedLog.record("${timeStamp()} $pkg :: host surface destroyed")
+            }
+        })
+
+        TaskEmbedLog.record("${timeStamp()} $pkg :: ${implCls.simpleName} constructed; waiting for host surface")
+        Log.i(TAG, "${implCls.simpleName} waiting for host surface pkg=$pkg bounds=$bounds")
+        return mode
+    }
+
+    /**
+     * Surface-driven activation (dex-verified API 30 SPD shape):
+     * initialize(SurfaceControl) -> isInitialized/start() ->
+     * prepareActivityOptions -> startActivity(PendingIntent, Intent, ActivityOptions).
+     * SurfaceView.getSurfaceControl is @hide (uid-1000 exempt); the
+     * SurfaceControl class itself is public API 29+, which is why the engine
+     * gate in TaskEmbed.kt starts at 29.
+     */
+    private fun initializeAndLaunch(activity: Activity, baseCls: Class<*>, embedder: Any, anchor: SurfaceView, pkg: String) {
+        val sc = SurfaceView::class.java.getMethod("getSurfaceControl").invoke(anchor)
+            ?: throw IllegalStateException("no host surface control")
+        val scCls = Class.forName("android.view.SurfaceControl")
+        val init = baseCls.getMethod("initialize", scCls).invoke(embedder, sc) as? Boolean ?: false
+        if (!init) throw IllegalStateException("initialize(surface) returned false")
+        val isInit = baseCls.getMethod("isInitialized").invoke(embedder) as? Boolean ?: false
+        if (!isInit) baseCls.getMethod("start").invoke(embedder)
 
         val intent = launchIntentFor(activity.packageManager, pkg)
             ?: throw IllegalStateException("no launch intent")
         val opts = ActivityOptions.makeBasic()
         val prepared = baseCls.getMethod("prepareActivityOptions", ActivityOptions::class.java).invoke(embedder, opts)
-        // Preferred 3-arg overload: startActivity(PendingIntent, Intent, ActivityOptions)
         val pi = android.app.PendingIntent.getActivity(
             activity, 0, intent, android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
-        val started: Boolean = try {
+        try {
             baseCls.getMethod("startActivity", android.app.PendingIntent::class.java, Intent::class.java, ActivityOptions::class.java)
                 .invoke(embedder, pi, intent, prepared)
-            true
         } catch (nsme: NoSuchMethodException) {
-            baseCls.getMethod("startActivity", Intent::class.java, android.os.UserHandle::class.java)
-                .invoke(embedder, intent, android.os.Process.myUserHandle())
-            true
+            baseCls.getMethod("startActivity", android.app.PendingIntent::class.java).invoke(embedder, pi)
         }
+        TaskEmbedLog.record("${timeStamp()} $pkg :: embed launched (host surface ready)")
+        Log.i(TAG, "embed launched pkg=$pkg")
+    }
 
-        val mode = if (implCls.name == TE_IMPL_CLASS) TASK_EMBEDDER else TASK_ORGANIZER
-        synchronized(this) { session = Session(token, pkg, bounds, mode, embedder, hostProxy, container) }
-        TaskEmbedLog.record("${timeStamp()} $pkg :: ${implCls.simpleName} started (started=$started, awaiting onInitialized/onTaskCreated)")
-        Log.i(TAG, "${implCls.simpleName} launched pkg=$pkg bounds=$bounds")
-        return mode
+    /** Card resized while an embed is live: ask the framework to resize the task. */
+    fun resize(token: Int, width: Int, height: Int) {
+        val s = synchronized(this) { session?.takeIf { it.token == token } } ?: return
+        val e = s.embedder ?: return
+        try {
+            e.javaClass.getMethod("resizeTask", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                .invoke(e, width, height)
+        } catch (ex: Exception) {
+            Log.w(TAG, "resizeTask(${width}x$height): ${ex.javaClass.simpleName}: ${ex.message}")
+        }
     }
 
     /** IWindow for the Host — via ViewRootImpl (hidden) on the card's window. */

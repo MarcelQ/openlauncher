@@ -73,6 +73,7 @@ fun TaskEmbedWidget(
 
     var screenBounds by remember { mutableStateOf<FreeformBounds?>(null) }
     val container = remember { FrameLayout(context) }
+    val dm        = context.resources.displayMetrics
     var embedToken by remember { mutableIntStateOf(0) }
     var liveMode   by remember { mutableStateOf<EmbedMode?>(null) }
 
@@ -84,21 +85,29 @@ fun TaskEmbedWidget(
         } else {
             val act = context as? Activity
             val b   = screenBounds
-            if (act != null && b != null && b.isValid) {
+            if (act != null && b != null && embedRectOnScreen(b, dm.widthPixels, dm.heightPixels)) {
                 if (embedToken != 0) TaskEmbedEngine.stop(embedToken)
                 embedToken = TaskEmbedEngine.nextToken()
-                liveMode   = TaskEmbedEngine.embedWithToken(act, container, packageName, b, embedToken)
+                liveMode   = TaskEmbedEngine.embedWithToken(act, container, packageName, b, embedToken) { mode -> liveMode = mode }
             }
         }
     }
 
-    // First valid layout pass may arrive after the effect above ran → embed here once.
+    // Bounds move: page switches take the card off screen (stop the session —
+    // embedding to pager-offset coords would render the task nowhere visible)
+    // and bring it back (embed fresh). An IN-PLACE card resize resizes the
+    // live task via the framework instead of relaunching it.
     LaunchedEffect(screenBounds, packageName, isEditing) {
         val act = context as? Activity
         val b   = screenBounds
-        if (!isEditing && packageName.isNotEmpty() && embedToken == 0 && act != null && b != null && b.isValid) {
+        if (isEditing || packageName.isEmpty() || act == null || b == null) return@LaunchedEffect
+        if (!embedRectOnScreen(b, dm.widthPixels, dm.heightPixels)) {
+            if (embedToken != 0) { TaskEmbedEngine.stop(embedToken); embedToken = 0; liveMode = null }
+        } else if (embedToken == 0) {
             embedToken = TaskEmbedEngine.nextToken()
-            liveMode   = TaskEmbedEngine.embedWithToken(act, container, packageName, b, embedToken)
+            liveMode   = TaskEmbedEngine.embedWithToken(act, container, packageName, b, embedToken) { mode -> liveMode = mode }
+        } else if (liveMode == EmbedMode.TASK_EMBEDDER || liveMode == EmbedMode.TASK_ORGANIZER) {
+            TaskEmbedEngine.resize(embedToken, b.right - b.left, b.bottom - b.top)
         }
     }
 

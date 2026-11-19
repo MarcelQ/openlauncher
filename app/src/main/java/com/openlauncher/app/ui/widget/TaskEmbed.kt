@@ -33,7 +33,8 @@ enum class EmbedMode { TASK_EMBEDDER, TASK_ORGANIZER, FALLBACK_LAUNCH }
  * Embed chain for one (re)launch:
  *  - TASK_EMBEDDER is the primary: the ROM ships the framework's own
  *    TaskEmbedder host (surface creation, task creation, input forwarding all
- *    handled framework-side). It needs API 26+ and a valid card rect.
+ *    handled framework-side). It needs API 29+ (initialize() takes a
+ *    SurfaceControl, which is public API 29+) and a fully on-screen card rect.
  *  - TASK_ORGANIZER is the fallback engine: register TaskOrganizer on the
  *    default display, launch normally, reparent the leash the callback hands
  *    us. Rendering proven by this shape; input routing is the open question,
@@ -44,7 +45,7 @@ enum class EmbedMode { TASK_EMBEDDER, TASK_ORGANIZER, FALLBACK_LAUNCH }
  *    never granted, so we skip straight to the fallback and keep logs honest.
  */
 fun embedChain(systemUid: Boolean, sdkInt: Int, hasValidBounds: Boolean): List<EmbedMode> {
-    if (!systemUid || sdkInt < 26 || !hasValidBounds) return listOf(EmbedMode.FALLBACK_LAUNCH)
+    if (!systemUid || sdkInt < 29 || !hasValidBounds) return listOf(EmbedMode.FALLBACK_LAUNCH)
     return listOf(EmbedMode.TASK_EMBEDDER, EmbedMode.TASK_ORGANIZER, EmbedMode.FALLBACK_LAUNCH)
 }
 
@@ -55,7 +56,16 @@ fun embedChain(systemUid: Boolean, sdkInt: Int, hasValidBounds: Boolean): List<E
  * is also what lifts hidden-API gating for the reflection the engine needs.
  */
 fun embedEnginesAllowed(systemUid: Boolean, sdkInt: Int, canManageActivities: Boolean): Boolean =
-    systemUid && sdkInt >= 26 && canManageActivities
+    systemUid && sdkInt >= 29 && canManageActivities
+
+/**
+ * The embed rect must be FULLY on screen: a card on another home-screen page
+ * is laid out off-screen (pager offset), and embedding to those coords puts
+ * the task on a virtual location the user never sees. Cards embed only while
+ * their page is the visible one; leaving the page stops the session.
+ */
+fun embedRectOnScreen(b: FreeformBounds, screenW: Int, screenH: Int): Boolean =
+    b.isValid && b.left >= 0 && b.top >= 0 && b.right <= screenW && b.bottom <= screenH
 
 /** Signature-level permissions the embed engines require (granted only at system uid). */
 const val PERM_ACTIVITY_EMBEDDING     = "android.permission.ACTIVITY_EMBEDDING"
