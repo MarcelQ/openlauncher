@@ -269,3 +269,63 @@ directly if the Tailscale android node "shield" turns out to be it.
 (~1 s after start), re-claiming the engine 2-3 times before settling; harmless for the
 fallback, but on the unit the ring will show TaskEmbedder teardown+restart cycles at boot —
 if the ROM dislikes that, stabilize the container identity first.
+
+### G.1 BENCH ROUNDS 4-6 — EMBED LIVE ON THE UNIT (2026-11-19, direct wireless adb)
+
+VERDICT: the EMBED card works on the real SPD unit. Google Maps and Stremio rendered
+LIVE inside cards (dumpsys: `mode=multi-window`, task RESUMED+FOCUSED while the launcher
+task is also RESUMED — the fork multi-resumes on the DEFAULT display), vendor top bar
+stays on top, and touch input reaches the app (user-confirmed). Fixes, each proven by
+adb forensics (`logcat -s TaskEmbed`, `dumpsys window/input/activities`, screencaps):
+
+1. **`DisposableEffect(embedToken)` self-destruct**: re-keying ran `onDispose` AFTER
+   `embedToken` was reassigned; the lambda reads the State-backed NEW token and stopped
+   the just-created session ~30 ms later (THE reason rounds 1-3 never rendered). Key on
+   `Unit` (composition lifetime); session replacement stays an explicit `stop(oldToken)`.
+2. **Compose interop never lays out late-added children** (1.7.0 `AndroidViewHolder`
+   lays out only during Compose passes): the anchor SurfaceView stayed 0x0 forever and
+   `surfaceCreated` never fired (`SurfaceView.layout()` is what calls `updateSurface()`).
+   Fix: force one measure/layout pass over the container ourselves after `addView`.
+3. **Hidden ≠ protected**: `TaskEmbedder.prepareActivityOptions(ActivityOptions)` exists
+   in dex but is **protected** — `getMethod` only sees public (`initialize`/`setListener`
+   worked, chain died at `prepare`). Fix: `findMethod()` walks `getDeclaredMethod` +
+   `setAccessible(true)` up the hierarchy.
+4. **`ViewRootImpl.getWindow()` does not exist on this fork** — `Host.getWindow()` falls
+   back to the `mWindow` FIELD (unit-proven: real IWindow handed over; tap-exclude pushed).
+5. **Input contract settled**: `TaskEmbedder.updateLocationAndTapExcludeRegion` pushes
+   `Host.getTapExcludeRegion()` via `IWindowSession.updateTapExcludeRegion(hostWindow,
+   region)` — the HOST window excludes that region and touches fall to the task window.
+   An empty Region (= round-3 value) = the launcher ate every touch on the card. Now the
+   card rect in window coords. `getScreenToTaskMatrix` = `translate(-cardOrigin)`.
+6. **Sizing**: the server IGNORES `ActivityOptions.setLaunchBounds` for mode-6 tasks
+   (window `mFrame` stayed `[0,0][1280,720]`), and base `TaskEmbedder.resizeTask(II)` is
+   a **stub** (`return-void`, vendor line 239). The vendor's real path is
+   **`TaskOrganizerTaskEmbedder.notifyBoundsChanged()`**: `Host.getScreenBounds()` ->
+   `offsetTo(0,0)` -> `WCT.setBounds(taskToken, size)` -> `WindowOrganizer.applyTransaction`
+   — i.e. task SIZE = host size, origin forced (0,0) so the reparented leash stays visually
+   under the anchor layer. Engine now calls it at `Listener.onTaskCreated` and on every
+   card resize (`resize()` tries it + the real `VirtualDisplayTaskEmbedder.resizeTask(II)`
+   as second attempt). ROUNDS 5→6 verdict still bench-pending for resize; touch offset =
+   card origin remains known (task bounds origin (0,0) vs reparented visual at card pos:
+   ~0 for a top-left card, up to full offset for a centered card — MotionEvents on the
+   card would need offset-injection to fix exactly; bench first).
+7. **Only one mode-6 task per display is VISIBLE** — launching card 2 flipped card 1's
+   task `visible=false` (dumpsys), which is exactly why additional concurrent cards MUST
+   take `embedChain(vdFirst=true)` (private VirtualDisplay, own always-visible display).
+   In the round-5 capture `organizer engine busy` never logged because the churn loop
+   below kept sessions dead at the moment of the second embed — the multi-embed verdict
+   re-runs on round 6.
+8. **Churn loop root cause**: the embedded task grabbing fullscreen focus relayouts the
+   launcher grid transiently (card oscillated 1189px <-> 1264px wide in the log), each
+   blip tripped the off-screen stop -> destroy/re-embed forever. Fix: 350 ms settle
+   delay before embedding + 400 ms grace with re-check before the off-screen stop.
+9. `registerOrganizer(6)` (MULTI_WINDOW) + `setInterceptBackPressedOnTaskRoot(true)`
+   confirmed in `TaskOrganizerTaskEmbedder.onInitialize`.
+
+Captured for forensics (local only): `%TEMP%\opencode\unit-bench-r5\` — full logcat,
+TaskEmbed ring, activities/windows/displays/containers dumps, SurfaceFlinger layer list,
+screencaps, settings datastore (grid then held ONE EMBED card 6x4 assigned Maps; a stale
+`EMBED_APP` entry lingered in `embed_app_packages` from an earlier second card).
+Round-6 APK (commit 44a1466, Zhantang re-signed) Taildropped to `iphone-15:` — bench when
+the unit's adb is back on: 2 EMBED cards side by side, resize one while live, and read
+`logcat -s TaskEmbed` for `notifyBoundsChanged`/`tearing down` breadcrumbs.
