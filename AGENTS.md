@@ -40,6 +40,16 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   framework-free helpers in `ui\widget\PipFreeform.kt`; the Context/ActivityOptions launch chain
   in `ui\widget\PipWidget.kt` is device-verified only); plus the device report's freeform verdict /
   resizability / su-summary helpers (`DeviceInfoReportTest.kt`);
+  and for the APP EMBED card's pure decision core — engine-chain order, system-uid/API/perms
+  gates, API-30 `MANAGE_ACTIVITY_STACKS` vs API-31 name, never-dead-tap fallback, log ring
+  (`app\src\test\java\com\openlauncher\app\ui\widget\TaskEmbedTest.kt`; framework-free
+  `ui\widget\TaskEmbed.kt`; the reflective engine `ui\widget\TaskEmbedEngine.kt` is
+  device-verified only — see `docs\float-window-research.md` §G for the ROM dex ground truth:
+  this SPD fork's framework.jar has NO ActivityView/LaunchCookie/SurfaceControlViewHost but DOES
+  have `android.window.TaskEmbedder` + `TaskOrganizerTaskEmbedder` + `VirtualDisplayTaskEmbedder`
+  + `TaskOrganizer` whose `ITaskOrganizer.onTaskAppeared` hands the task leash SurfaceControl
+  directly — all hiddenapi-BLOCKED but uid-1000-exempt, reached by reflection via a dynamic-Proxy
+  `TaskEmbedder$Host` over the card view);
   and for the tyre-card phone web server's wire contract - hotspot-AP host picking, request-line
   parsing, the `/tpms.json` payload (raw kPa + display value, null-not-zero for unknown wheels,
   staleness, the shared `alarmingWheels` verdict, dot-decimal numbers), routing incl. the
@@ -129,7 +139,16 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   NEVER commit them, never sign anything for distribution with them (bench testing on the dev's own
   unit only). Next step: re-sign the built `app-aospDebug.apk` with
   `apksigner sign --key <pk8> --cert <pem>` and install on the unit → expected uid 1000 →
-  mini-aa-style `TaskOrganizer`+`SurfaceControlViewHost` app embedding becomes testable (the release and
+  app embedding becomes testable via the ROM's OWN embedding stack — NOT mini-aa's
+   `TaskOrganizer`+`SurfaceControlViewHost` (SurfaceControlViewHost/ActivityView/LaunchCookie do
+   NOT exist on this framework; the dex-verified engine is `android.window.TaskEmbedder` +
+   `TaskOrganizerTaskEmbedder`/`VirtualDisplayTaskEmbedder`, see `docs\float-window-research.md`
+   §G). Implemented 2026-11-19 as the APP EMBED card: grid type `EMBED_APP`, DataStore key
+   `embed_app_package`, reflective engine `ui\widget\TaskEmbedEngine.kt`, pure decisions +
+   TaskEmbedLog ring in `ui\widget\TaskEmbed.kt` (JVM-tested); on non-system builds the card
+   degrades to tap-to-open APP OVERLAY behaviour and NEVER auto-launches — gate/fallback/
+   Diagnostics ring AVD-proven, live embed bench-queued with the re-signed APK staged at
+   `reference\unit-20261118\keys\openlauncher-aosp-zhantang-signed.apk` (the release and
   build type stay for other QCM units that may use the public testkey; do not re-litigate this
   unit). Follow-up probe shipped instead: Diagnostics now enumerates the vendor float-window stack
   (`com.spd.floatwindow` activities/receivers + exported flags + main activity). **FINDINGS from the
