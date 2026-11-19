@@ -445,6 +445,12 @@ object DeviceInfoCollector {
             val attempts = com.openlauncher.app.ui.widget.PipLaunchLog.snapshot()
             if (attempts.isEmpty()) line("    (none since launcher start)")
             attempts.forEach { line("    $it") }
+            // APP EMBED card engine chain outcomes (gate + which engine threw
+            // what) — the bench verdict helper for the TaskEmbedder path.
+            line("  last app-embed engine events (this process):")
+            val embedEvents = com.openlauncher.app.ui.widget.TaskEmbedLog.snapshot()
+            if (embedEvents.isEmpty()) line("    (none since launcher start)")
+            embedEvents.forEach { line("    $it") }
         }
 
         section("Installed packages") {

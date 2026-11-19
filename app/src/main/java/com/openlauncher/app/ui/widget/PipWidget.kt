@@ -149,7 +149,7 @@ private const val TAG = "PipFreeform"
  * result (and `adb shell dumpsys window windows | findstr WindowingMode`) is
  * the real verdict.
  */
-private fun launchOverLauncher(context: Context, packageName: String, bounds: FreeformBounds?): PipLaunchMode? {
+internal fun launchOverLauncher(context: Context, packageName: String, bounds: FreeformBounds?): PipLaunchMode? {
     val pm = context.packageManager
     val intent = pm.getLaunchIntentForPackage(packageName)
         ?: pm.queryIntentActivities(

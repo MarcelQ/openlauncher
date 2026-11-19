@@ -87,6 +87,9 @@ data class AppSettings(
     val dayNightMode: DayNightMode = DayNightMode.DARK,
     val showPip: Boolean = false,
     val pipAppPackage: String = "",
+    // App rendered LIVE inside the EMBED card (system-uid engines only; the
+    // card degrades to APP OVERLAY behaviour on normal builds)
+    val embedAppPackage: String = "",
     // Head unit's radio app — mirrored & controlled via its MediaSession
     val radioPackage: String = "",
     val onboardingCompleted: Boolean = false,

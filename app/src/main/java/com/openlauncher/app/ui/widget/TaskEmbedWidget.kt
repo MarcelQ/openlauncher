@@ -1,0 +1,165 @@
+package com.openlauncher.app.ui.widget
+
+import android.app.Activity
+import android.widget.FrameLayout
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.drawable.toBitmap
+import com.openlauncher.app.ui.widget.EmbedMode.FALLBACK_LAUNCH
+
+/**
+ * "APP EMBED" card: renders the assigned app's LIVE window INSIDE the card and
+ * resizes it with the card footprint — the in-card embedding path (engine +
+ * decision helpers in TaskEmbedEngine.kt / TaskEmbed.kt, ROM-verified against
+ * the dev's SPD unit's framework.jar).
+ *
+ * Requires the platform-signed build running at system uid (aospDebug re-signed
+ * with the vendor platform key); everywhere else it degrades to the APP
+ * OVERLAY behaviour (freeform-over-launcher chain on tap) and says so in the
+ * Diagnostics log ring (TaskEmbedLog) — never a dead card.
+ *
+ * Status caveat: engine outcomes are logged, but "task actually visible +
+ * touches forwarded" is bench-verdict territory (dumpsys window + eyes), same
+ * honest rule as PipFreeform's ROM-downgrade caveat.
+ */
+@Composable
+fun TaskEmbedWidget(
+    packageName: String,
+    accent: Color,
+    isDayMode: Boolean,
+    isEditing: Boolean,
+    onAssign: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val tileBg   = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF0B0B0B)
+    val dimColor = if (isDayMode) Color(0xFF888888) else Color(0xFF555555)
+    val context  = LocalContext.current
+    val rootView = LocalView.current
+
+    if (packageName.isEmpty()) {
+        Column(
+            modifier            = modifier.background(tileBg)
+                .then(if (!isEditing) Modifier.clickable(onClick = onAssign) else Modifier),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(Icons.Default.Add, null, tint = accent.copy(alpha = 0.6f), modifier = Modifier.size(28.dp))
+            Spacer(Modifier.height(6.dp))
+            Text("ASSIGN APP", color = dimColor, fontSize = 8.sp, letterSpacing = 1.5.sp, textAlign = TextAlign.Center)
+        }
+        return
+    }
+
+    var screenBounds by remember { mutableStateOf<FreeformBounds?>(null) }
+    val container = remember { FrameLayout(context) }
+    var embedToken by remember { mutableIntStateOf(0) }
+    var liveMode   by remember { mutableStateOf<EmbedMode?>(null) }
+
+    // (Re)start embedding on assignment change; stop when cleared or editing.
+    LaunchedEffect(packageName, isEditing) {
+        if (isEditing || packageName.isEmpty()) {
+            if (embedToken != 0) { TaskEmbedEngine.stop(embedToken); embedToken = 0 }
+            liveMode = null
+        } else {
+            val act = context as? Activity
+            val b   = screenBounds
+            if (act != null && b != null && b.isValid) {
+                if (embedToken != 0) TaskEmbedEngine.stop(embedToken)
+                embedToken = TaskEmbedEngine.nextToken()
+                liveMode   = TaskEmbedEngine.embedWithToken(act, container, packageName, b, embedToken)
+            }
+        }
+    }
+
+    // First valid layout pass may arrive after the effect above ran → embed here once.
+    LaunchedEffect(screenBounds, packageName, isEditing) {
+        val act = context as? Activity
+        val b   = screenBounds
+        if (!isEditing && packageName.isNotEmpty() && embedToken == 0 && act != null && b != null && b.isValid) {
+            embedToken = TaskEmbedEngine.nextToken()
+            liveMode   = TaskEmbedEngine.embedWithToken(act, container, packageName, b, embedToken)
+        }
+    }
+
+    DisposableEffect(embedToken) {
+        onDispose { if (embedToken != 0) { TaskEmbedEngine.stop(embedToken); embedToken = 0 } }
+    }
+
+    val pm    = context.packageManager
+    val icon  = remember(packageName) { runCatching { pm.getApplicationIcon(packageName).toBitmap(96, 96) }.getOrNull() }
+    val label = remember(packageName) {
+        runCatching { pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString() }.getOrDefault(packageName)
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .background(tileBg)
+            .onGloballyPositioned { coords ->
+                val rootPos = IntArray(2)
+                rootView.getLocationOnScreen(rootPos)
+                val winPos = coords.positionInWindow()
+                screenBounds = freeformBoundsOnScreen(
+                    rootX = rootPos[0], rootY = rootPos[1],
+                    cardX = winPos.x.toInt(), cardY = winPos.y.toInt(),
+                    width = coords.size.width, height = coords.size.height
+                )
+            }
+            .then(if (liveMode == FALLBACK_LAUNCH) Modifier.clickable {
+                val mode = embedFallbackTap(isEditing = false, hasApp = true)
+                if (mode != null) {
+                    android.util.Log.i("TaskEmbed", "card tapped -> fallback freeform launch $packageName")
+                    launchOverLauncher(context, packageName, screenBounds)
+                }
+            } else Modifier)
+    ) {
+        // Live engines render into this container (the framework attaches the
+        // task surface / anchor SurfaceView into it). Fallback keeps it empty.
+        AndroidView(
+            factory  = { container },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (liveMode == null || liveMode == FALLBACK_LAUNCH) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (icon != null) {
+                    Image(painter = BitmapPainter(icon.asImageBitmap()), contentDescription = label, modifier = Modifier.size(48.dp))
+                } else {
+                    Icon(Icons.Default.PlayArrow, null, tint = accent, modifier = Modifier.size(48.dp))
+                }
+                Text(
+                    text = label.uppercase(), color = dimColor, fontSize = 8.sp,
+                    letterSpacing = 1.5.sp, textAlign = TextAlign.Center, maxLines = 1
+                )
+                Text(
+                    text = if (liveMode == FALLBACK_LAUNCH) "TAP TO OPEN (OVERLAY MODE)" else "STARTING EMBED…",
+                    color = accent.copy(alpha = 0.6f), fontSize = 7.sp, letterSpacing = 1.sp, textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}

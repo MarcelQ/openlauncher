@@ -283,6 +283,8 @@ class MainActivity : ComponentActivity() {
                                         onVolumeUp          = vm::volumeUp,
                                         onAssignPip         = { vm.startPipPicker() },
                                         onClearPip          = { vm.clearPipApp() },
+                                        onAssignEmbed       = { vm.startEmbedPicker() },
+                                        onClearEmbed        = { vm.clearEmbedApp() },
                                         onTapNowPlaying     = {
                                             val pkg = nowPlaying?.controller?.packageName
                                             if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
@@ -325,6 +327,7 @@ class MainActivity : ComponentActivity() {
                                         carPlayPickerLabel  = when (appPickerTarget) {
                                             com.openlauncher.app.viewmodel.LauncherViewModel.AppPickerTarget.ANDROID_AUTO -> "CHOOSE ANDROID AUTO APP"
                                             com.openlauncher.app.viewmodel.LauncherViewModel.AppPickerTarget.PIP          -> "CHOOSE PIP APP"
+                                            com.openlauncher.app.viewmodel.LauncherViewModel.AppPickerTarget.EMBED        -> "CHOOSE APP TO EMBED"
                                             com.openlauncher.app.viewmodel.LauncherViewModel.AppPickerTarget.RADIO        -> "CHOOSE RADIO APP"
                                             else -> "CHOOSE CARPLAY APP"
                                         },

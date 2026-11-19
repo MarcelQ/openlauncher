@@ -94,6 +94,7 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("BRIGHTNESS",  "BRIGHTNESS",  Icons.Default.WbSunny,       "Screen brightness presets"),
     WidgetTypeInfo("TPMS",        "TIRE PRESSURE", Icons.Default.Usb,         "Tyre pressure (USB receiver)"),
     WidgetTypeInfo("PIP_APP",     "APP OVERLAY",   Icons.Default.PictureInPictureAlt, "App in a floating window over the launcher"),
+    WidgetTypeInfo("EMBED_APP",   "APP EMBED",     Icons.Default.Apps,          "App rendered inside the card (needs system build)"),
     WidgetTypeInfo("MAP_NATIVE",  "MAP (LIVE)",    Icons.Default.Map,         "Interactive map (OSM) inside the card")
 )
 
@@ -125,6 +126,7 @@ private fun cardLabel(type: String): String = when (type) {
     "SOUNDBOARD"  -> "SOUND"
     "TPMS"        -> "TIRE PRESSURE"
     "PIP_APP"     -> "APP OVERLAY"
+    "EMBED_APP"   -> "APP EMBED"
     "MAP_NATIVE"  -> "MAP (LIVE)"
     else          -> type
 }
@@ -146,6 +148,8 @@ fun HomeScreen(
     onVolumeUp: () -> Unit,
     onAssignPip: () -> Unit,
     onClearPip: () -> Unit,
+    onAssignEmbed: () -> Unit = {},
+    onClearEmbed: () -> Unit = {},
     onTapNowPlaying: () -> Unit,
     onResizeWidget: (id: String, gridX: Int, gridY: Int, spanX: Int, spanY: Int) -> Unit,
     onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
@@ -253,6 +257,7 @@ fun HomeScreen(
                     onAssignRadio         = onAssignRadio,
                     onTpmsConnect         = onTpmsConnect,
                     onAssignPip           = onAssignPip,
+                    onAssignEmbed         = onAssignEmbed,
                     onUpdateSoundPad      = onUpdateSoundPad
                 )
             }
@@ -304,6 +309,9 @@ fun HomeScreen(
                 onMoveToPage        = { p -> contextMenuId = null; onMoveWidgetToPage(id, p) },
                 onAssignPip         = { contextMenuId = null; onAssignPip() },
                 onClearPip          = { contextMenuId = null; onClearPip() },
+                embedAppPackage     = settings.embedAppPackage,
+                onAssignEmbed       = { contextMenuId = null; onAssignEmbed() },
+                onClearEmbed        = { contextMenuId = null; onClearEmbed() },
                 onSetClockStyle     = { onSetClockStyle(it) },
                 onSetVitalsAsBars   = { onSetVitalsAsBars(it) },
                 onSetSpeedometerDigitalOnly = { onSetSpeedometerDigitalOnly(it) },
@@ -410,6 +418,7 @@ private fun WidgetPageGrid(
     onAssignRadio: () -> Unit,
     onTpmsConnect: () -> Unit,
     onAssignPip: () -> Unit,
+    onAssignEmbed: () -> Unit,
     onUpdateSoundPad: (index: Int, pad: com.openlauncher.app.data.SoundPadConfig) -> Unit
 ) {
     BoxWithConstraints(
@@ -702,6 +711,14 @@ private fun WidgetPageGrid(
                         isDayMode   = isDayMode,
                         isEditing   = editMode,
                         onAssign    = onAssignPip,
+                        modifier    = Modifier.fillMaxSize()
+                    )
+                    "EMBED_APP" -> TaskEmbedWidget(
+                        packageName = settings.embedAppPackage,
+                        accent      = accent,
+                        isDayMode   = isDayMode,
+                        isEditing   = editMode,
+                        onAssign    = onAssignEmbed,
                         modifier    = Modifier.fillMaxSize()
                     )
                     "MAP_NATIVE" -> MapNativeWidget(
@@ -1031,6 +1048,9 @@ private fun WidgetContextMenu(
     onMoveToPage: (Int) -> Unit,
     onAssignPip: () -> Unit,
     onClearPip: () -> Unit,
+    embedAppPackage: String = "",
+    onAssignEmbed: () -> Unit = {},
+    onClearEmbed: () -> Unit = {},
     onSetClockStyle: (ClockStyle) -> Unit,
     onSetVitalsAsBars: (Boolean) -> Unit,
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit,
@@ -1168,6 +1188,26 @@ private fun WidgetContextMenu(
                         icon      = Icons.Default.Clear,
                         tint      = inactiveMenuTint,
                         onClick   = onClearPip,
+                        isDayMode = isDayMode
+                    )
+                }
+            }
+            if (widgetType == "EMBED_APP") {
+                HorizontalDivider(color = menuDivider)
+                ContextRow(
+                    label     = "CHOOSE APP",
+                    icon      = Icons.Default.Apps,
+                    tint      = accent,
+                    onClick   = onAssignEmbed,
+                    isDayMode = isDayMode
+                )
+                if (embedAppPackage.isNotEmpty()) {
+                    HorizontalDivider(color = menuDivider)
+                    ContextRow(
+                        label     = "CLEAR APP",
+                        icon      = Icons.Default.Clear,
+                        tint      = inactiveMenuTint,
+                        onClick   = onClearEmbed,
                         isDayMode = isDayMode
                     )
                 }

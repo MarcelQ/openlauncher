@@ -235,7 +235,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // ── CarPlay / Android Auto picker ─────────────────────────────────────────
-    enum class AppPickerTarget { CARPLAY, ANDROID_AUTO, PIP, RADIO }
+    enum class AppPickerTarget { CARPLAY, ANDROID_AUTO, PIP, EMBED, RADIO }
 
     private val _appPickerTarget = MutableStateFlow<AppPickerTarget?>(null)
     val carPlayPickerActive: StateFlow<Boolean> = MutableStateFlow(false) // kept for compat
@@ -256,6 +256,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _nav.value = NavDestination.APP_LIBRARY
     }
 
+    fun startEmbedPicker() {
+        _appPickerTarget.value = AppPickerTarget.EMBED
+        _nav.value = NavDestination.APP_LIBRARY
+    }
+
     fun startRadioPicker() {
         _appPickerTarget.value = AppPickerTarget.RADIO
         _nav.value = NavDestination.APP_LIBRARY
@@ -266,6 +271,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             AppPickerTarget.CARPLAY      -> updateSettings { copy(carPlayPackage = app.packageName) }
             AppPickerTarget.ANDROID_AUTO -> updateSettings { copy(androidAutoPackage = app.packageName) }
             AppPickerTarget.PIP          -> updateSettings { copy(pipAppPackage = app.packageName) }
+            AppPickerTarget.EMBED        -> updateSettings { copy(embedAppPackage = app.packageName) }
             AppPickerTarget.RADIO        -> updateSettings { copy(radioPackage = app.packageName) }
             null -> {}
         }
@@ -276,6 +282,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun clearCarPlayApp()      { updateSettings { copy(carPlayPackage = "") } }
     fun clearAndroidAutoApp()  { updateSettings { copy(androidAutoPackage = "") } }
     fun clearPipApp()          { updateSettings { copy(pipAppPackage = "") } }
+    fun clearEmbedApp()        { updateSettings { copy(embedAppPackage = "") } }
     fun clearRadioApp()        { updateSettings { copy(radioPackage = "") } }
 
     /**

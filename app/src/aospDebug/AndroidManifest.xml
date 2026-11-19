@@ -7,6 +7,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Signature|privileged permissions for the EMBED card engines
+         (TaskEmbedder / TaskOrganizer). Granted automatically once the app
+         installs as android.uid.system with the matching platform signature;
+         harmless in every other install. -->
+    <uses-permission android:name="android.permission.ACTIVITY_EMBEDDING" />
+    <uses-permission android:name="android.permission.MANAGE_ACTIVITY_STACKS" />
+    <uses-permission android:name="android.permission.REAL_GET_TASKS" />
+
     <application
         android:label="Open Launcher AOSP-TEST"
         tools:replace="android:label">
