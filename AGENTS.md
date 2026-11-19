@@ -51,6 +51,10 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   + `TaskOrganizer` whose `ITaskOrganizer.onTaskAppeared` hands the task leash SurfaceControl
   directly — all hiddenapi-BLOCKED but uid-1000-exempt, reached by reflection via a dynamic-Proxy
   `TaskEmbedder$Host` over the card view);
+  and for the MULTI-EMBED per-card assignment rules (several EMBED cards, each its own app;
+  legacy `embed_app_package` = fallback for cards without a per-card entry) — pure
+  `embedPackageFor` + serialize/parse in `data\AppSettings.kt`
+  (`app\src\test\java\com\openlauncher\app\data\EmbedAssignmentTest.kt`);
   and for the tyre-card phone web server's wire contract - hotspot-AP host picking, request-line
   parsing, the `/tpms.json` payload (raw kPa + display value, null-not-zero for unknown wheels,
   staleness, the shared `alarmingWheels` verdict, dot-decimal numbers), routing incl. the
@@ -149,7 +153,14 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
    `TaskOrganizerTaskEmbedder`/`VirtualDisplayTaskEmbedder`, see `docs\float-window-research.md`
    §G). Implemented 2026-11-19 as the APP EMBED card: grid type `EMBED_APP`, DataStore key
    `embed_app_package`, reflective engine `ui\widget\TaskEmbedEngine.kt`, pure decisions +
-   TaskEmbedLog ring in `ui\widget\TaskEmbed.kt` (JVM-tested); on non-system builds the card
+   TaskEmbedLog ring in `ui\widget\TaskEmbed.kt` (JVM-tested). MULTI-EMBED (66baf10): engine
+   sessions are a Map keyed by card token; several EMBED cards run concurrently, each assigned
+   its OWN app via `embedAppPackages` (WidgetInstance.id → package; legacy key stays the fallback
+   for cards without an entry). First session takes the TaskOrganizer engine, additional ones the
+   VirtualDisplay engine (server binds default-display tasks to the last organizer registered for
+   the mode — peekLast, dex-verified §G; private virtual displays can't collide AND their tasks
+   stay RESUMED unfocused = native "prevent the embedded app from stopping" a la mini-aa).
+   On non-system builds the card
    degrades to tap-to-open APP OVERLAY behaviour and NEVER auto-launches — gate/fallback/
    Diagnostics ring AVD-proven, live embed bench-queued with the re-signed APK staged at
    `reference\unit-20261118\keys\openlauncher-aosp-zhantang-signed.apk` (the release and

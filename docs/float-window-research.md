@@ -233,6 +233,33 @@ and draws a green/amber link-state dot so embed vs overlay is never a guess.
 (not-draggable) inside the card + forward touches; page-2 card alive on swipe-in; `resizeTask`
 follows the grid; Diagnostics embed ring (12 entries) names any method the real ROM refuses.
 
+**Multi-embed ground truth (same capture, services.jar classes2 dumped 2026-11-19 — answers
+"can two embedded apps be active at the same time", the mini-aa question):**
+- `TaskEmbedder.prepareActivityOptions` calls `ActivityOptions.setLaunchWindowingMode(6)` and
+  `TaskOrganizerTaskEmbedder.onInitialize` calls `registerOrganizer(6)`; the dex locals table of
+  `TaskOrganizer.registerOrganizer(I)V` names the int **`windowingMode`**, and the server
+  `TaskOrganizerController.registerTaskOrganizer(ITaskOrganizer, int windowingMode)` confirms
+  this fork RE-KEYS Q's per-display registration to per-windowing-mode (PINNED/SPLIT/MULTI_WINDOW
+  only — other modes throw "only Pinned/Split/Multiwindow windowing modes are supported").
+- Server keeps `mTaskOrganizersForWindowingMode: SparseArray<LinkedList<IBinder>>` — MULTIPLE
+  organizers per mode are ALLOWED (second registration only logs "Task organizer already exists").
+  But `Task.updateTaskOrganizerState()` binds every root task to `getTaskOrganizer(mode)` =
+  **`LinkedList.peekLast()`** (the most recently registered organizer), and the binding is sticky
+  per task (`mLastTaskOrganizerWindowingMode`). So N default-display embedders technically coexist
+  but cross-wire: whichever embedded card registered LAST captures subsequently created tasks.
+  Our engine therefore runs at most ONE TaskOrganizerTaskEmbedder session; concurrent extra
+  sessions take `embedChain(vdFirst = true)`.
+- `VirtualDisplayTaskEmbedder.onInitialize` is a fully separate mechanism (dex-verified):
+  `createVirtualDisplay` per instance (flags `mUsePublicVirtualDisplay`/`mUseTrustedDisplay`) +
+  `IActivityTaskManager.registerTaskStackListener` + `prepareActivityOptions` adds
+  `setLaunchDisplayId(vd)`; fields include `mSingleTaskInstance`. Two instances can never collide
+  (private displays), and a task on a visible virtual display is RESUMED even unfocused — the
+  native keep-alive mini-aa had to bolt on. Input forwarding is the engine's own
+  `createKeyEvent`/`reportLocation`/`mForwardedInsets` machinery; bench must verdict touch response.
+- Unproven and bench-queued: whether the fork multi-resumes two MULTI_WINDOW tasks on the DEFAULT
+  display (that would let even two organizer-mode cards stay active; `dumpsys activity activities`
+  RESUMED lines answer it in one shot).
+
 **Bench file delivery (verified 2026-11-19, no firewall admin needed):**
 `tailscale file cp <apk> "iphone-15:"` from the workstation -> Files section of the Tailscale
 iOS app -> relay to the unit via LocalSend (or USB). The unit can also be a Taildrop target
