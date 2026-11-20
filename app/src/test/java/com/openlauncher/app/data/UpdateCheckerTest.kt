@@ -68,8 +68,8 @@ class UpdateCheckerTest {
 
     @Test fun `asset pick prefers exact channel name then any apk then null`() {
         val assets = listOf(
-            GitHubAsset("notes.txt", "https://x/notes.txt", 10),
-            GitHubAsset("openlauncher-main-debug.apk", "https://x/main.apk", 20)
+            GitHubAsset(id = 1, name = "notes.txt", browserDownloadUrl = "https://x/notes.txt", sizeBytes = 10),
+            GitHubAsset(id = 2, name = "openlauncher-main-debug.apk", browserDownloadUrl = "https://x/main.apk", sizeBytes = 20)
         )
         assertEquals("openlauncher-main-debug.apk", pickApkAsset(assets, UpdateChannel.STABLE)?.name)
         assertEquals("openlauncher-main-debug.apk", pickApkAsset(assets, UpdateChannel.DEV)?.name)
@@ -118,5 +118,70 @@ class UpdateCheckerTest {
         assertTrue(!shaMatches("unknown", "d4551e4"))
         assertTrue(!shaMatches(null, "d4551e4"))
         assertTrue(!shaMatches("d4551e4", "ffee123"))
+    }
+
+    // ── private AOSP release channel (platform-signed bench builds) ──────────
+
+    @Test fun `AOSP channel exists only for the aosp-suffixed applicationId`() {
+        val normal = availableUpdateChannels("com.openlauncher.app")
+        val aosp   = availableUpdateChannels("com.openlauncher.app.aosp")
+        assertTrue(normal.none { it.private })
+        assertTrue(normal.containsAll(listOf(UpdateChannel.DEV, UpdateChannel.STABLE)))
+        assertTrue(aosp.contains(UpdateChannel.AOSP))
+        assertTrue(aosp.containsAll(normal)) // superset — never hides the public channels
+    }
+
+    @Test fun `AOSP channel points at the private releases-only repo`() {
+        assertEquals(AOSP_REPO, UpdateChannel.AOSP.repo)
+        assertEquals("aosp-latest", UpdateChannel.AOSP.releaseTag)
+        assertEquals("openlauncher-aosp-debug.apk", UpdateChannel.AOSP.assetName)
+        assertTrue(UpdateChannel.AOSP.private)
+        assertTrue(!UpdateChannel.DEV.private)
+        assertEquals("MarcelQ" to "openlauncher-aosp", splitRepo(AOSP_REPO))
+        assertEquals("MarcelQ" to "openlauncher", splitRepo(UPDATE_REPO))
+    }
+
+    @Test fun `fromKey accepts the AOSP channel and still defaults to DEV`() {
+        assertEquals(UpdateChannel.AOSP, UpdateChannel.fromKey("AOSP"))
+        assertEquals(UpdateChannel.DEV, UpdateChannel.fromKey("nonsense"))
+    }
+
+    @Test fun `auth header built only from a non-blank token`() {
+        assertEquals("Bearer ghp_xyz", authHeaderFor("  ghp_xyz "))
+        assertNull(authHeaderFor(""))
+        assertNull(authHeaderFor("   "))
+    }
+
+    @Test fun `private asset downloads only via asset API with a token`() {
+        val priv = RemoteUpdate(8, "0.0.7", "ffee1234",
+            "https://github.com/MarcelQ/openlauncher-aosp/releases/download/aosp-latest/a.apk",
+            "a.apk", 10L, "now", "notes",
+            privateAsset = true, assetApiUrl = "https://api.github.com/repos/MarcelQ/openlauncher-aosp/releases/assets/42")
+        // Token present -> asset-API URL + Bearer (browser URL must NOT be used).
+        val req = downloadRequestFor(priv, "ghp_readonly")!!
+        assertEquals("https://api.github.com/repos/MarcelQ/openlauncher-aosp/releases/assets/42", req.first)
+        assertEquals("Bearer ghp_readonly", req.second)
+        // No token -> NO download request at all (fail closed).
+        assertNull(downloadRequestFor(priv, ""))
+        // Public channel -> browser URL, no header.
+        val pub = priv.copy(privateAsset = false, assetApiUrl = "")
+        val pubReq = downloadRequestFor(pub, "")!!
+        assertEquals(pub.apkUrl, pubReq.first)
+        assertNull(pubReq.second)
+    }
+
+    @Test fun `buildRemoteUpdate marks AOSP assets for the token path`() {
+        val json = realReleaseJson
+            .replace("dev-latest", "aosp-latest")
+            .replace("openlauncher-dev-debug.apk", "openlauncher-aosp-debug.apk")
+            .replace("""{ "name": "openlauncher-aosp-debug.apk"""",
+                      """{ "id": 42, "name": "openlauncher-aosp-debug.apk"""")
+        val remote = buildRemoteUpdate(gson.fromJson(json, GitHubRelease::class.java), UpdateChannel.AOSP)!!
+        assertTrue(remote.privateAsset)
+        assertEquals("https://api.github.com/repos/MarcelQ/openlauncher-aosp/releases/assets/42", remote.assetApiUrl)
+        // Same JSON parsed for DEV stays on the plain browser URL path.
+        val devRemote = buildRemoteUpdate(gson.fromJson(realReleaseJson, GitHubRelease::class.java), UpdateChannel.DEV)!!
+        assertTrue(!devRemote.privateAsset)
+        assertEquals("", devRemote.assetApiUrl)
     }
 }

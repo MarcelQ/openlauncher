@@ -329,3 +329,57 @@ screencaps, settings datastore (grid then held ONE EMBED card 6x4 assigned Maps;
 Round-6 APK (commit 44a1466, Zhantang re-signed) Taildropped to `iphone-15:` — bench when
 the unit's adb is back on: 2 EMBED cards side by side, resize one while live, and read
 `logcat -s TaskEmbed` for `notifyBoundsChanged`/`tearing down` breadcrumbs.
+
+### G.2 MINI-AA DECOMPILE STUDY + ROUND-7 KEEP-ALIVE (2026-11-20)
+
+User instruction: "mini-aa had this issue too. Might be worth decompiling the
+ASOP version and looking at the code to see what was done there to make the
+embedded app stable." Study done with jadx 1.5.1 over the unit-capture APK
+(`reference\unit-20261118\apks\mini-aa-app-system-release.apk`, 3 dex; dumps +
+decompiled sources at `%TEMP%\opencode\miniaa\`). Verdicts:
+
+- Their card-embedding stack = `com.miniaa.launcher.taskview.TaskViewWrapper`
+  (reflection over AOSP Shell TaskView/TaskOrganizer+WCT — same substrate as
+  ours) + an `ActivityViewWrapper` fallback + a per-ROM capability scanner
+  (`Class.forName` over ActivityView / 5 TaskView variants / TaskOrganizer / WCT).
+- **There is no magic keep-alive.** `TaskViewWrapper` itself has zero
+  stabilization: `onTaskVisibilityChanged` is only LOGGED. Their entire answer
+  is the caller (`EmbeddedAppViewKt.TaskViewContainer`): a launcher
+  **ON_PAUSE/ON_RESUME watchdog** — paused >30 s -> `resetForResume()` +
+  `startApp()` relaunch into the still-alive TaskView; idle >4 h ->
+  `activity.recreate()`. The ActivityView path uses the identical pattern
+  (invalidate cached start methods, bump an embed-attempt counter, relaunch).
+- Two launch-hygiene facts adopted verbatim: (1) `startApp` ALWAYS adds intent
+  flags `0x10008000` = NEW_TASK|MULTIPLE_TASK — a FRESH task every launch so
+  the organizer callback always fires; RESUMING a stale task (never firing
+  onTaskCreated) is exactly our black-card-after-occlusion symptom. (2)
+  `removeCurrentTask()` purges the previous task via reflected
+  `ActivityManager.removeTask(taskId)` before relaunching.
+- Their `setLaunchDisplayId` reflection (dex3) lives in HomeScreen = a
+  SEPARATE-DISPLAY fullscreen launch feature, not card embedding. mini-aa has
+  no concurrent-card trickery to steal — our VirtualDisplay-engine routing
+  stays the multi-embed answer.
+
+Round-7 (commit 3caf8e4): `TaskEmbedEngine.revive(token, reason,
+forceReinitialize)` ladder — (1) NON-destructive WCT
+`reorder(mTaskToken,true)+setHidden(false)` (dex: TOTE keeps
+`mTaskToken : WindowContainerToken`; this fork's WCT carries reorder/setHidden
+keyed by WindowContainerToken; `WindowOrganizer.applyTransaction` exists) when
+the host surface is still alive and the trigger is not a surface re-creation;
+(2) purgeTask + embedder release + `initialize(NEW SurfaceControl)` + relaunch
+into the SAME embedder; (3) honest FALLBACK_LAUNCH flip via session.onOutcome.
+`surfaceCreated` after the first init now revives with forceReinitialize=true
+(round-5 log proved Settings occlusion destroys the anchor surface; the old
+one-shot `fired` flag left the embedder on a stale SurfaceControl forever).
+ALL embed launches carry EMBED_LAUNCH_FLAGS; teardown purges the task before
+release; widget resume watchdog (idle >= 1 s, 600 ms settle;
+`embedReviveOnResume` pure gate, JVM-tested) mirrors mini-aa's but acts sooner
+because step 1 is non-destructive.
+
+Bench verdict pending (unit adb off at round-7 ship, APK
+`openlauncher-embed-3caf8e4-aosp.apk` Taildropped): open Settings over a live
+EMBED card -> expect `revive (launcher resumed...)` followed by either
+`WCT reorder+setHidden(false) applied` + `re-assert only` (app never restarts)
+or `revive relaunch OK` (app restarts in-card, card recovers on its own);
+surface-destroy path logs `revive (surface re-created...)`. 2-card case still
+expects `organizer engine busy — VirtualDisplay engine first`.

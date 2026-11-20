@@ -14,6 +14,12 @@ release/*.aab
 *.jks
 *.keystore
 keystore/
+# Raw platform-key material (DER pk8 + PEM certs) — the Zhantang pair lives
+# OUTSIDE this repo (reference\unit-20261118\keys\) and must stay there:
+# never commit, never upload as secret/artifact, never distribute signed APKs
+# publicly (docs\float-window-research.md §F).
+*.pk8
+*.pem
 
 # Android Studio / IntelliJ IDEA
 .idea/

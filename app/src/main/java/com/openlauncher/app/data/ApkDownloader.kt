@@ -20,8 +20,13 @@ object ApkDownloader {
 
     private fun authority(context: Context) = context.packageName + ".fileprovider"
 
-    /** Deletes a previous partial/completed copy then enqueues a fresh download. */
-    fun download(context: Context, url: String, fileName: String): Long {
+    /** Deletes a previous partial/completed copy then enqueues a fresh download.
+     *  [authHeader] (e.g. "Bearer <PAT>") is only ever set for the PRIVATE
+     *  GitHub asset-API URL — GitHub then needs the octet-stream Accept so it
+     *  hands the raw bytes instead of the JSON metadata, and its 302 to the
+     *  CDN carries no credentials of its own. Headers go ONLY to api.github.com;
+     *  the token itself must never be logged. */
+    fun download(context: Context, url: String, fileName: String, authHeader: String? = null): Long {
         downloadedFile(context, fileName)?.delete()
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val request = DownloadManager.Request(Uri.parse(url)).apply {
@@ -34,6 +39,11 @@ object ApkDownloader {
             // VISIBLE just shows the system progress notification while downloading.
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             setRequiresDeviceIdle(false)
+            if (authHeader != null) {
+                addRequestHeader("Authorization", authHeader)
+                addRequestHeader("Accept", "application/octet-stream")
+                addRequestHeader("X-GitHub-Api-Version", "2022-11-28")
+            }
         }
         return dm.enqueue(request)
     }

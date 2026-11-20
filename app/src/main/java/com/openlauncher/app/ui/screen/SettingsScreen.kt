@@ -46,6 +46,8 @@ import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.UnitSystem
 import com.openlauncher.app.data.UPDATE_REPO
+import com.openlauncher.app.data.AOSP_REPO
+import com.openlauncher.app.data.availableUpdateChannels
 import com.openlauncher.app.data.UpdateChannel
 import com.openlauncher.app.data.UpdateReason
 import com.openlauncher.app.data.UpdateUiState
@@ -76,6 +78,8 @@ fun SettingsScreen(
     onDownloadUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
     onSetUpdateChannel: (UpdateChannel) -> Unit,
+    // Read-only GitHub PAT for the private AOSP release repo (.aosp builds only)
+    onSetUpdateToken: (String) -> Unit = {},
     // CarPlay / Android Auto assignment (app picker lives in AppLibrary)
     onAssignCarPlay: () -> Unit = {},
     onAssignAndroidAuto: () -> Unit = {},
@@ -1149,15 +1153,23 @@ fun SettingsScreen(
 
         // ── Updates ──────────────────────────────────────────────────────────
         if (category == 8) SettingsSection("Updates") {
-            val channel = UpdateChannel.fromKey(settings.updateChannel)
+            // The private AOSP channel exists ONLY on .aosp builds (and never
+            // for the normal app — a platform-signed APK over a normal install
+            // would signature-mismatch brick the update flow).
+            val channels = availableUpdateChannels(BuildConfig.APPLICATION_ID)
+            val channel  = UpdateChannel.fromKey(settings.updateChannel).takeIf { it in channels }
+                ?: UpdateChannel.DEV
 
             SettingsRow(
                 label    = "Release channel",
-                sublabel = "dev = integration builds · main = stable builds",
+                sublabel = when (channel) {
+                    UpdateChannel.AOSP -> "platform-signed bench builds · PRIVATE releases repo, token required"
+                    else               -> "dev = integration builds · main = stable builds"
+                },
                 icon     = Icons.Default.SystemUpdate
             ) {
                 Row {
-                    UpdateChannel.entries.forEachIndexed { index, ch ->
+                    channels.forEachIndexed { index, ch ->
                         if (index > 0) Spacer(Modifier.width(6.dp))
                         FilterChip(
                             selected = channel == ch,
@@ -1172,10 +1184,51 @@ fun SettingsScreen(
                 }
             }
 
+            // Read-only GitHub token for the private AOSP releases repo. The
+            // stored value is never echoed into the field (an entered token is
+            // masked while typing and disappears when the draft resets); only
+            // a status line tells the user whether one is stored.
+            if (UpdateChannel.AOSP in channels) {
+                SettingsDivider()
+                var tokenDraft by remember { mutableStateOf("") }
+                SettingsRow(
+                    label    = "GitHub token (read-only)",
+                    sublabel = if (settings.updateToken.isNotEmpty())
+                        "Token stored ✓ — fine-grained PAT, contents:read on $AOSP_REPO only"
+                    else
+                        "No token stored — the private $AOSP_REPO releases need one. Create a fine-grained PAT scoped to that repo, read-only. It stays in this app's private storage; it is never logged or reported.",
+                    icon     = Icons.Default.Key
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedTextField(
+                            value                = tokenDraft,
+                            onValueChange        = { tokenDraft = it },
+                            placeholder          = { Text(if (settings.updateToken.isNotEmpty()) "replace…" else "github_pat_…",
+                                                          color = if (isDayMode) Color(0xFF999999) else Color(0xFF444444), fontSize = 12.sp) },
+                            singleLine           = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            textStyle            = LocalTextStyle.current.copy(fontSize = 12.sp, color = if (isDayMode) Color(0xFF111111) else Color.White),
+                            colors               = outlinedFieldColors(accent),
+                            modifier             = Modifier.width(170.dp)
+                        )
+                        if (tokenDraft.isNotBlank()) {
+                            IconButton(onClick = { onSetUpdateToken(tokenDraft); tokenDraft = "" }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Check, "Save token", tint = accent, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                        if (settings.updateToken.isNotEmpty()) {
+                            IconButton(onClick = { onSetUpdateToken("") }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Clear, "Clear token", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
             when (val st = updateState) {
                 UpdateUiState.Idle -> SettingsButton(
                     label    = "Check for Updates",
-                    sublabel = "$UPDATE_REPO · channel ${channel.label}",
+                    sublabel = "${channel.repo} · channel ${channel.label}",
                     icon     = Icons.Default.Refresh,
                     accent   = accent,
                     onClick  = { onCheckUpdates() }
@@ -1196,7 +1249,7 @@ fun SettingsScreen(
                     ) {}
                     SettingsButton(
                         label    = "Check again",
-                        sublabel = "$UPDATE_REPO · channel ${channel.label}",
+                        sublabel = "${channel.repo} · channel ${channel.label}",
                         icon     = Icons.Default.Refresh,
                         accent   = accent,
                         onClick  = { onCheckUpdates() }
@@ -1278,7 +1331,7 @@ fun SettingsScreen(
                     ) {}
                     SettingsButton(
                         label    = "Try again",
-                        sublabel = "$UPDATE_REPO · channel ${channel.label}",
+                        sublabel = "${channel.repo} · channel ${channel.label}",
                         icon     = Icons.Default.Refresh,
                         accent   = accent,
                         onClick  = { onCheckUpdates() }
@@ -1292,7 +1345,7 @@ fun SettingsScreen(
                 icon     = Icons.Default.OpenInNew,
                 accent   = accent,
                 onClick  = {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/$UPDATE_REPO/releases"))
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/${channel.repo}/releases"))
                     runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 }
             )

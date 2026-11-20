@@ -74,6 +74,10 @@ class SettingsRepository(private val context: Context) {
         val GRADIENT_DIRECTION    = stringPreferencesKey("gradient_direction")
         val USE_CUSTOM_BG_COLOR   = booleanPreferencesKey("use_custom_bg_color")
         val UPDATE_CHANNEL        = stringPreferencesKey("update_channel")
+        // Read-only GitHub PAT for the private AOSP release repo (see
+        // AppSettings.updateToken). Private DataStore file only; never logged,
+        // never in Diagnostics reports.
+        val UPDATE_TOKEN          = stringPreferencesKey("update_token")
         val WEATHER_PROVIDER      = stringPreferencesKey("weather_provider")
         val WEATHER_SHOW_HIGH_LOW = booleanPreferencesKey("weather_show_high_low")
         val WEATHER_SHOW_REALFEEL = booleanPreferencesKey("weather_show_real_feel")
@@ -237,6 +241,7 @@ class SettingsRepository(private val context: Context) {
                  updateChannel = prefs[Keys.UPDATE_CHANNEL]?.let {
                      runCatching { UpdateChannel.valueOf(it) }.getOrNull()?.name ?: defaults.updateChannel
                  } ?: defaults.updateChannel,
+                 updateToken = prefs[Keys.UPDATE_TOKEN] ?: defaults.updateToken,
                  weatherProvider = prefs[Keys.WEATHER_PROVIDER]?.let {
                      runCatching { WeatherProvider.valueOf(it) }.getOrNull()
                  } ?: defaults.weatherProvider,
@@ -310,6 +315,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.GRADIENT_DIRECTION] = s.gradientDirection.name
             prefs[Keys.USE_CUSTOM_BG_COLOR] = s.useCustomBackgroundColor
             prefs[Keys.UPDATE_CHANNEL]     = s.updateChannel
+            prefs[Keys.UPDATE_TOKEN]       = s.updateToken
             prefs[Keys.WEATHER_PROVIDER]   = s.weatherProvider.name
             prefs[Keys.WEATHER_SHOW_HIGH_LOW] = s.weatherShowHighLow
             prefs[Keys.WEATHER_SHOW_REALFEEL] = s.weatherShowRealFeel

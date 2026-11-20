@@ -18,10 +18,28 @@ import retrofit2.http.Path
 
 const val UPDATE_REPO = "MarcelQ/openlauncher"
 
-/** Which rolling GitHub release the app tracks. Mirrors the CI workflow's branch model. */
-enum class UpdateChannel(val releaseTag: String, val assetName: String, val label: String) {
-    DEV   ("dev-latest",  "openlauncher-dev-debug.apk",  "dev"),
-    STABLE("main-latest", "openlauncher-main-debug.apk", "main");
+/** PRIVATE releases-only companion repo for the PLATFORM-SIGNED bench build
+ *  (applicationId com.openlauncher.app.aosp). Releases only — never code, and
+ *  the Zhantang platform key NEVER touches GitHub (no secret, no artifact, no
+ *  CI signing): the APK is built + re-signed LOCALLY via
+ *  `C:\Users\Marcel\CarLauncherLab\tools\sign-and-publish-aosp.ps1`. Distribution
+ *  is gated by the user's read-only GitHub token (contents:read on this repo
+ *  only); without it the channel simply cannot be fetched. */
+const val AOSP_REPO = "MarcelQ/openlauncher-aosp"
+
+/** Which rolling GitHub release the app tracks. Mirrors the CI workflow's branch model.
+ *  AOSP is the locally-signed platform build (see AOSP_REPO) — offered only on
+ *  .aosp builds, and only fetchable with a stored read-only token. */
+enum class UpdateChannel(
+    val releaseTag: String,
+    val assetName: String,
+    val label: String,
+    val repo: String = UPDATE_REPO,
+    val private: Boolean = false
+) {
+    DEV   ("dev-latest",  "openlauncher-dev-debug.apk",    "dev"),
+    STABLE("main-latest", "openlauncher-main-debug.apk",   "main"),
+    AOSP  ("aosp-latest", "openlauncher-aosp-debug.apk",   "aosp-signed", AOSP_REPO, true);
 
     companion object {
         fun fromKey(key: String): UpdateChannel =
@@ -29,8 +47,22 @@ enum class UpdateChannel(val releaseTag: String, val assetName: String, val labe
     }
 }
 
+/** Channels selectable on THIS installed build: the platform-signed AOSP
+ *  channel only exists for the `.aosp` applicationId (signature mismatch
+ *  would brick-updates for the normal app, and the signed APK must never be
+ *  offered to normal installs). Pure — JVM-tested. */
+fun availableUpdateChannels(applicationId: String): List<UpdateChannel> =
+    if (applicationId.endsWith(".aosp")) UpdateChannel.entries
+    else UpdateChannel.entries.filter { !it.private }
+
+/** Bearer header for GitHub, or null for no/blank token (public calls then
+ *  send no Authorization header at all). Never log the token itself. */
+fun authHeaderFor(token: String): String? =
+    token.trim().takeIf { it.isNotEmpty() }?.let { "Bearer $it" }
+
 // ── GitHub API models (only the fields we use) ───────────────────────────────
 data class GitHubAsset(
+    @SerializedName("id")                   val id: Long = 0,
     @SerializedName("name")                 val name: String = "",
     @SerializedName("browser_download_url") val browserDownloadUrl: String = "",
     @SerializedName("size")                 val sizeBytes: Long = 0
@@ -53,8 +85,26 @@ data class RemoteUpdate(
     val fileName: String,
     val sizeBytes: Long,
     val publishedAt: String,
-    val notes: String
+    val notes: String,
+    // Private-repo channels (AOSP): browser_download_url is NOT usable without
+    // a token on the PUBLIC host, so we keep the asset-API URL (same repo
+    // prefix, /releases/assets/{id}) and download it with
+    // Accept: application/octet-stream + the user's Bearer token instead.
+    val privateAsset: Boolean = false,
+    val assetApiUrl: String = ""
 )
+
+/** What the downloader must actually hit for this remote (+ optional auth
+ *  header). Pure — JVM-tested. Private assets ONLY via the asset API with a
+ *  token; if the token is missing the caller must not download at all. */
+fun downloadRequestFor(remote: RemoteUpdate, token: String): Pair<String, String?>? {
+    val auth = authHeaderFor(token)
+    return when {
+        !remote.privateAsset -> remote.apkUrl to null
+        auth != null && remote.assetApiUrl.isNotEmpty() -> remote.assetApiUrl to auth
+        else -> null
+    }
+}
 
 data class LocalBuild(val versionCode: Int, val versionName: String, val gitSha: String)
 
@@ -121,7 +171,10 @@ fun buildRemoteUpdate(release: GitHubRelease, channel: UpdateChannel): RemoteUpd
         fileName    = asset.name,
         sizeBytes   = asset.sizeBytes,
         publishedAt = release.publishedAt,
-        notes       = release.body
+        notes       = release.body,
+        privateAsset = channel.private,
+        assetApiUrl  = if (channel.private && asset.id > 0)
+            "https://api.github.com/repos/${channel.repo}/releases/assets/${asset.id}" else ""
     )
 }
 
@@ -143,11 +196,22 @@ fun decideUpdate(local: LocalBuild, remote: RemoteUpdate): UpdateDecision {
 
 // ── Network ──────────────────────────────────────────────────────────────────
 
+/** "MarcelQ/openlauncher-aosp" -> ("MarcelQ", "openlauncher-aosp"). */
+fun splitRepo(repo: String): Pair<String, String> {
+    val i = repo.indexOf('/')
+    return if (i < 0) repo to repo else repo.substring(0, i) to repo.substring(i + 1)
+}
+
 interface GitHubUpdateApiService {
-    @GET("repos/$UPDATE_REPO/releases/tags/{tag}")
+    @GET("repos/{owner}/{repo}/releases/tags/{tag}")
     suspend fun releaseByTag(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
         @Path("tag") tag: String,
-        @Header("Accept") accept: String = "application/vnd.github+json"
+        @Header("Accept") accept: String = "application/vnd.github+json",
+        // Null for public channels (header omitted entirely); Bearer <PAT> for
+        // the private AOSP repo. NEVER log this value.
+        @Header("Authorization") authorization: String? = null
     ): GitHubRelease
 }
 

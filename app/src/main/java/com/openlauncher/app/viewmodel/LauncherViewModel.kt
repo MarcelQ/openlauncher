@@ -16,6 +16,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openlauncher.app.BuildConfig
 import com.openlauncher.app.data.ApkDownloader
+import com.openlauncher.app.data.AOSP_REPO
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.DefaultShortcutIcon
@@ -38,14 +39,18 @@ import com.openlauncher.app.data.WeatherApi
 import com.openlauncher.app.data.WeatherProvider
 import com.openlauncher.app.data.WidgetInstance
 import com.openlauncher.app.data.buildRemoteUpdate
+import com.openlauncher.app.data.availableUpdateChannels
+import com.openlauncher.app.data.authHeaderFor
 import com.openlauncher.app.data.computeWidgetMove
 import com.openlauncher.app.data.decideUpdate
 import com.openlauncher.app.data.defaultShortcuts
+import com.openlauncher.app.data.downloadRequestFor
 import com.openlauncher.app.data.firstFreeArea
 import com.openlauncher.app.data.firstFreeCell
 import com.openlauncher.app.data.hasWidgetType
 import com.openlauncher.app.data.instancesOnPage
 import com.openlauncher.app.data.nextInstanceId
+import com.openlauncher.app.data.splitRepo
 import com.openlauncher.app.data.resizePageLayout
 import com.openlauncher.app.data.toWeatherState
 import com.openlauncher.app.util.SunriseSunset
@@ -102,11 +107,33 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         updateSettings { copy(updateChannel = channel.name) }
     }
 
+    /** Store/clear the read-only GitHub PAT for the PRIVATE AOSP repo.
+     *  Deliberately never logged and never part of any report. */
+    fun setUpdateToken(token: String) {
+        _updateState.value = UpdateUiState.Idle
+        updateSettings { copy(updateToken = token.trim()) }
+    }
+
     fun checkForUpdates() {
         viewModelScope.launch {
             _updateState.value = UpdateUiState.Checking
-            val channel = UpdateChannel.fromKey(settings.value.updateChannel)
-            runCatching { UpdateApi.service.releaseByTag(channel.releaseTag) }.fold(
+            val available = availableUpdateChannels(BuildConfig.APPLICATION_ID)
+            var channel = UpdateChannel.fromKey(settings.value.updateChannel)
+            // A stored private channel on a non-.aosp install (or vice versa)
+            // must never drive the network call.
+            if (channel !in available) channel = UpdateChannel.DEV
+            if (channel.private && settings.value.updateToken.isBlank()) {
+                _updateState.value = UpdateUiState.Failed(
+                    "${channel.label} builds live in the PRIVATE $AOSP_REPO releases — " +
+                    "paste a read-only GitHub token in the field below first")
+                return@launch
+            }
+            val (owner, repo) = splitRepo(channel.repo)
+            runCatching {
+                UpdateApi.service.releaseByTag(
+                    owner, repo, channel.releaseTag,
+                    authorization = authHeaderFor(settings.value.updateToken))
+            }.fold(
                 onSuccess = { release ->
                     val remote = buildRemoteUpdate(release, channel)
                     if (remote == null) {
@@ -117,7 +144,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         UpdateDecision.NoApkAsset   -> _updateState.value = UpdateUiState.Failed("Release ${channel.releaseTag} has no APK asset yet")
                     }
                 },
-                onFailure = { _updateState.value = UpdateUiState.Failed("Can't reach GitHub — check the network") }
+                onFailure = { t ->
+                    // Token problems get their own honest hint (never leak the
+                    // token itself anywhere, including error strings).
+                    val code = (t as? retrofit2.HttpException)?.code()
+                    _updateState.value = UpdateUiState.Failed(
+                        if (channel.private && (code == 401 || code == 403 || code == 404))
+                            "GitHub rejected the token for $AOSP_REPO (${code ?: "?"}) — " +
+                            "it needs contents:read on that repo only"
+                        else "Can't reach GitHub — check the network")
+                }
             )
         }
     }
@@ -139,7 +175,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         updateFlowJob = viewModelScope.launch {
             _updateState.value = UpdateUiState.Downloading(0)
             try {
-                val id = ApkDownloader.download(app, remote.apkUrl, remote.fileName)
+                // Public channels: browser_download_url, no header. Private
+                // AOSP: GitHub asset API + Bearer token (never logged). A null
+                // request here means "private asset but no/blank token" — the
+                // check step normally prevents it; re-guard for safety.
+                val req = downloadRequestFor(remote, settings.value.updateToken)
+                if (req == null) {
+                    _updateState.value = UpdateUiState.Failed("That release asset is private — add your GitHub token first")
+                    return@launch
+                }
+                val id = ApkDownloader.download(app, req.first, remote.fileName, req.second)
                 val deadline = System.currentTimeMillis() + 15L * 60_000L   // slow head-unit Wi-Fi
                 var st = ApkDownloader.status(app, id)
                 while (st.running) {

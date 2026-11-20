@@ -348,6 +348,7 @@ class MainActivity : ComponentActivity() {
                                         onDownloadUpdate   = { vm.downloadAndInstallUpdate() },
                                         onInstallUpdate    = { vm.installDownloadedUpdate() },
                                         onSetUpdateChannel = { ch -> vm.setUpdateChannel(ch) },
+                                        onSetUpdateToken   = { tok -> vm.setUpdateToken(tok) },
                                         onAssignCarPlay     = { vm.startCarPlayPicker() },
                                         onAssignAndroidAuto = { vm.startAndroidAutoPicker() },
                                         onClearCarPlay      = { vm.clearCarPlayApp() },

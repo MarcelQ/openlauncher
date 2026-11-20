@@ -155,7 +155,14 @@ data class AppSettings(
     // ── Updates (GitHub rolling releases) ────────────────────────────────────────
     // "DEV" tracks dev-latest (integration builds), "STABLE" tracks main-latest.
     // Debug APKs default to the dev channel, release APKs to main. See UpdateChecker.kt.
-    val updateChannel: String = if (BuildConfig.DEBUG) "DEV" else "STABLE"
+    val updateChannel: String = if (BuildConfig.DEBUG) "DEV" else "STABLE",
+
+    /** Read-only GitHub fine-grained PAT for the PRIVATE AOSP release repo
+     *  (contents:read on MarcelQ/openlauncher-aosp ONLY — tell that to the UI).
+     *  Stored in the app's private DataStore like the other settings; must
+     *  never appear in logcat, the Diagnostics report, or any commit. Empty =
+     *  AOSP channel cannot be fetched. */
+    val updateToken: String = ""
 )
 
 fun defaultShortcuts() = listOf(
