@@ -50,8 +50,12 @@ class TaskEmbedTest {
         // Server binds each new task to the LAST organizer registered for the
         // embed windowing mode (peekLast) — a second default-display embedder
         // would cross-wire card↔task binding, so extra sessions go first-VD.
+        // Round 9: the VD engine's failure path goes STRAIGHT to fallback —
+        // retrying the organizer engine would re-register an organizer and
+        // steal the FIRST card's binding (round-8 bench: card 1 went blind and
+        // card 2 rendered nothing).
         assertEquals(
-            listOf(EmbedMode.TASK_ORGANIZER, EmbedMode.TASK_EMBEDDER, EmbedMode.FALLBACK_LAUNCH),
+            listOf(EmbedMode.TASK_ORGANIZER, EmbedMode.FALLBACK_LAUNCH),
             embedChain(systemUid = true, sdkInt = 30, hasValidBounds = true, vdFirst = true)
         )
         // The hint never bypasses the honest gates:
@@ -62,6 +66,11 @@ class TaskEmbedTest {
         assertEquals(
             listOf(EmbedMode.FALLBACK_LAUNCH),
             embedChain(systemUid = true, sdkInt = 30, hasValidBounds = false, vdFirst = true)
+        )
+        // The FIRST session's chain keeps the full ladder (it owns the organizer).
+        assertEquals(
+            listOf(EmbedMode.TASK_EMBEDDER, EmbedMode.TASK_ORGANIZER, EmbedMode.FALLBACK_LAUNCH),
+            embedChain(systemUid = true, sdkInt = 30, hasValidBounds = true, vdFirst = false)
         )
     }
 

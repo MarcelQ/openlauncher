@@ -383,3 +383,85 @@ EMBED card -> expect `revive (launcher resumed...)` followed by either
 or `revive relaunch OK` (app restarts in-card, card recovers on its own);
 surface-destroy path logs `revive (surface re-created...)`. 2-card case still
 expects `organizer engine busy — VirtualDisplay engine first`.
+
+### G.3 ROUND-8 — GEOMETRY/INPUT SETTLE RULE; MULTI-EMBED STILL BROKEN (2026-11-20)
+
+User photos (no adb) showed ONE live EMBED card (Maps) plus a media panel —
+which the user correctly identified as the launcher's own **Now Playing
+widget, NOT an embed**: multi-embed does NOT work; a second card never becomes
+a live, interactive app ("I never get to active apps running that I can both
+interact with at the same time"). Round 8 fixed only the two defects the
+photos DID prove, both on the single-card path:
+
+1. **Task drifts outside its card border** after the settings-open grid
+   ANIMATION — the ROM keeps whatever Host geometry it was handed last, and we
+   were pushing mid-animation coords per Compose layout frame. Fix (commit
+   55870f1): the widget debounces bounds pushes 350 ms after the last bounds
+   change; `TaskEmbedEngine.refreshGeometry()` then drives the dex-verified
+   `TaskEmbedder.updateLocationAndTapExcludeRegion()`V (re-reads
+   PositionInWindow/ScreenBounds/TapExcludeRegion, rewrites IWindowSession
+   exclusion) + `notifyBoundsChanged()` + our own `forceLayout(container)` so
+   the anchor SurfaceView physically moved first. Called on settle, on both
+   revive branches, and on launcher resume.
+2. **Stale touch island steals foreground touches** — "touch doesn't work on
+   the settings UI in the area where the app is running, as if the app has
+   focus": our host-window tap-exclude stayed on while something else was in
+   front. Fix: `TaskEmbedEngine.setTouchIsland(token,on)` drives base-class
+   `clearTapExcludeRegion()`V / re-push. Widget lifecycle: ON_PAUSE -> island
+   OFF immediately (embed KEEPS rendering — user wants never-stop, but the
+   foreground UI must win touches over the card); ON_RESUME -> 600 ms settle
+   -> refreshGeometry (always, even <1 s peeks) + revive ladder past 1 s.
+
+Round-8 log breadcrumbs to watch: `geometry+touch-region re-pushed`,
+`touch island ON/OFF`, plus the round-7 revive lines. The 2-card case had no
+logged session yet — bench was blocked on unit adb.
+
+### G.4 ROUND-9 — MULTI-EMBED ROOT CAUSE FOUND IN ROM DEX (2026-11-20)
+
+Full re-read of the unit's framework.jar dex (`TaskEmbedder` base +
+`TaskOrganizerTaskEmbedder` + `VirtualDisplayTaskEmbedder`) explains the
+second-card failure WITHOUT any new bench log:
+
+- **`VirtualDisplayTaskEmbedder` has NO `(Context, Host)` constructor.** Dex
+  shows exactly one public ctor: `<init>(Context, TaskEmbedder$Host, ZZZ)V`,
+  the booleans stored in order as `mSingleTaskInstance`,
+  `mUsePublicVirtualDisplay`, `mUseTrustedDisplay`. Our engine called
+  `getConstructor(Context, Host)` → `NoSuchMethodException` → the log line
+  `TASK_ORGANIZER failed(NoSuchMethodException …)` on EVERY additional card.
+- The then-chain `[TASK_ORGANIZER, TASK_EMBEDDER, FALLBACK]` fell through to
+  **re-registering the windowing-mode organizer**, and the server binds each
+  new task to `LinkedList.peekLast()` — the new organizer — so card 2's launch
+  (or even its mere registration) **hijacked card 1's task binding**: precisely
+  "it doesn't know which widget to render the right app", and card 2 stayed
+  black.
+
+Fixes shipped (round 9):
+- Engine ctor probe: 2-arg first, else the 5-arg `(Context,Host,Z,Z,Z)` with
+  flags read straight off the ROM's own `onInitialize` bytecode:
+  `singleTaskInstance=true` (`setDisplayToSingleTaskInstance(displayId)` —
+  one task locked per card display, created RESUMED+FOCUSED there),
+  `usePublicVirtualDisplay=false` (dex +0x1 = FLAG_PUBLIC; keep the card
+  display private so no app can discover it), `useTrustedDisplay=true`
+  (dex +0x400 = FLAG_TRUSTED — required for `reparentDisplayContent` and
+  input). Manifest (aospDebug only): + `INTERNAL_SYSTEM_WINDOW`,
+  + `INJECT_EVENTS` (both signature-level, auto-granted at uid 1000; the ROM
+  engine's own `performBackPress` injects a KeyEvent into the VD display).
+- Pure chain (JVM-tested): `vdFirst` chain is now
+  `[TASK_ORGANIZER, FALLBACK_LAUNCH]` — an additional card NEVER retries the
+  organizer engine; a dead organizer session (failed init, embedder still
+  held) is fully torn down before any new launch, and `vdFirst` only counts
+  sessions with a LIVE embedder.
+- Listener verbs the dex added (previously swallowed by the else-branch):
+  `onTaskMovedToFront` / `onTaskVisibilityChanged(IZ)` / `onTaskRemovalStarted`
+  now log per-session (the cross-wire hypothesis and the "other one stops
+  when I focus this one" hypothesis both become one-line readable in a
+  capture), and removal flips the card back to tap-to-open.
+
+Verdict territory (round-9 APK): `logcat -s TaskEmbed` on a 2-card test must
+show `organizer engine busy — VirtualDisplay engine first`, then
+`VirtualDisplayTaskEmbedder 5-arg ctor (…)`, `TaskVirtualDisplay@… created`
+breadcrumbs and NO `TASK_ORGANIZER failed(NoSuchMethod…)`. Both cards render
++ interactive simultaneously is the user-level goal; touch on the VD-engine
+card additionally depends on the ROM's tap-exclude honoring per-host-window
+regions (two engines pushing exclusion to the SAME launcher window token can
+collide — first logged collision candidate for round 10).

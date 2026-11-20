@@ -56,18 +56,24 @@ enum class EmbedMode { TASK_EMBEDDER, TASK_ORGANIZER, FALLBACK_LAUNCH }
  *    APP OVERLAY card (freeform-over-launcher chain, fullscreen last).
  *  - On a non-system build (systemUid == false) the signature permissions are
  *    never granted, so we skip straight to the fallback and keep logs honest.
- *  - [vdFirst] reorders the two live engines for ADDITIONAL concurrent
- *    sessions: the ROM server binds each newly appeared task to the LAST
- *    organizer registered for the embed windowing mode (LinkedList.peekLast,
- *    dex-verified), so only one session should drive the TaskOrganizer engine
- *    at a time; extra cards take their own private VirtualDisplay instead.
+ *  - [vdFirst] is the chain for ADDITIONAL concurrent sessions while an
+ *    organizer-engine session is already live: the session takes its own
+ *    private VirtualDisplay engine, and when that fails it goes STRAIGHT to
+ *    FALLBACK_LAUNCH. It must never retry the TaskOrganizer engine: registering
+ *    a second organizer for the embed windowing mode re-binds the FIRST card's
+ *    task to the new organizer (server LinkedList.peekLast, dex-verified) —
+ *    round-8 bench: the second card rendered nothing and card 1 went blind.
+ *    (Round-8 root cause: VirtualDisplayTaskEmbedder has NO 2-arg ctor on this
+ *    ROM — only (Context, Host, ZZZ) — so the VD attempt threw NoSuchMethod and
+ *    the old chain fell through to re-registering the organizer. Ctor probe
+ *    fixed in TaskEmbedEngine; the chain hardening lives here.)
  */
 fun embedChain(
     systemUid: Boolean, sdkInt: Int, hasValidBounds: Boolean, vdFirst: Boolean = false
 ): List<EmbedMode> {
     if (!systemUid || sdkInt < 29 || !hasValidBounds) return listOf(EmbedMode.FALLBACK_LAUNCH)
     return if (vdFirst)
-        listOf(EmbedMode.TASK_ORGANIZER, EmbedMode.TASK_EMBEDDER, EmbedMode.FALLBACK_LAUNCH)
+        listOf(EmbedMode.TASK_ORGANIZER, EmbedMode.FALLBACK_LAUNCH)
     else
         listOf(EmbedMode.TASK_EMBEDDER, EmbedMode.TASK_ORGANIZER, EmbedMode.FALLBACK_LAUNCH)
 }

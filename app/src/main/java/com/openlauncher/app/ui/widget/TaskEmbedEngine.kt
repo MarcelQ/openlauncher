@@ -168,6 +168,20 @@ object TaskEmbedEngine {
                     teardown(s)
                 }
 
+            // A FAILED host-surface init flips the session mode to FALLBACK but
+            // leaves the embedder (and its organizer registration!) alive for a
+            // possible revive. If no revive comes and another card launches,
+            // that dead organizer would steal the new task's peekLast binding —
+            // so a session that is fallback-state BUT still holds an embedder
+            // gets fully torn down when its token is re-embedded. (The mode
+            // flip alone, with the embedder released, is harmless.)
+            sessions[token]?.takeIf {
+                it.mode == FALLBACK_LAUNCH && it.embedder != null && it.launchedOnce
+            }?.let { s ->
+                TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: dead organizer released (failed init, re-embed)")
+                teardown(s)
+            }
+
             val prev = sessions.values.find {
                 it.embedder != null && it.mode != FALLBACK_LAUNCH &&
                 it.packageName == packageName && it.bounds == bounds && it.container === container
@@ -185,7 +199,10 @@ object TaskEmbedEngine {
             // One session on the windowing-mode organizer at a time (server
             // binds each new task to the LAST registered organizer): extra
             // concurrent sessions prefer their own private VirtualDisplay.
-            vdFirst = sessions.values.any { it.mode == TASK_EMBEDDER }
+            // A session that launched and then FAILED (fallback-state with a
+            // dead embedder) no longer counts: its teardown above released the
+            // organizer, so the new card may safely take it.
+            vdFirst = sessions.values.any { it.mode == TASK_EMBEDDER && it.embedder != null }
             if (vdFirst)
                 TaskEmbedLog.record("${timeStamp()} $packageName :: organizer engine busy — VirtualDisplay engine first (multi-embed)")
         }
@@ -262,7 +279,36 @@ object TaskEmbedEngine {
         }
         val hostProxy = Proxy.newProxyInstance(hostCls.classLoader, arrayOf(hostCls), hostHandler)
 
-        val embedder = implCls.getConstructor(Context::class.java, hostCls).newInstance(activity, hostProxy)
+        // Constructor probe (round-9 dex ground truth, the multi-embed fix):
+        // this ROM's VirtualDisplayTaskEmbedder has NO (Context, Host) ctor —
+        // only <init>(Context, TaskEmbedder$Host, ZZZ)V where the booleans map,
+        // in dex field-set order, to mSingleTaskInstance, mUsePublicVirtualDisplay
+        // and mUseTrustedDisplay. Calling getConstructor(Context, Host) threw
+        // NoSuchMethodException on EVERY second card (the old chain then
+        // re-registered the windowing-mode organizer and stole card 1's
+        // peekLast binding — "it doesn't know which widget renders which app").
+        // Flags chosen from the ROM's own onInitialize bytecode:
+        //   singleTaskInstance = true  → setDisplayToSingleTaskInstance(displayId)
+        //     locks one task to the display: per-card displays can never
+        //     cross-wire, and the task is created RESUMED+FOCUSED on its own
+        //     display (the native "keep the embedded app running").
+        //   usePublicVirtualDisplay = false → dex 0012: adds VIRTUAL_DISPLAY_FLAG_PUBLIC
+        //     (0x1). Keep the display PRIVATE: an app must never discover or
+        //     move itself to a card display; we launch via setLaunchDisplayId.
+        //   useTrustedDisplay = true → dex 0018: adds VIRTUAL_DISPLAY_FLAG_TRUSTED
+        //     (0x400), what the framework needs to reparent the task surface
+        //     into our host (reparentDisplayContent) and route input.
+        val embedder = try {
+            implCls.getConstructor(Context::class.java, hostCls).newInstance(activity, hostProxy)
+        } catch (nsme: NoSuchMethodException) {
+            val ctor = implCls.constructors.firstOrNull { c ->
+                c.parameterTypes.size == 5 && c.parameterTypes[0] == Context::class.java &&
+                c.parameterTypes[1] == hostCls &&
+                c.parameterTypes.drop(2).all { it == java.lang.Boolean.TYPE }
+            } ?: throw nsme
+            TaskEmbedLog.record("${timeStamp()} $pkg :: ${implCls.simpleName} 5-arg ctor (singleTask=true, publicVD=false, trusted=true)")
+            ctor.newInstance(activity, hostProxy, true, false, true)
+        }
 
         // Listener: surface state + task identity into the log ring.
         val listenerCls = Class.forName(TE_LISTENER)
@@ -300,6 +346,36 @@ object TaskEmbedEngine {
                         // the first frame (launch bounds are ignored by this
                         // server; resizeTask base impl is a stub — see resize()).
                         resize(token, container.width, container.height)
+                        null
+                    }
+                    "onTaskMovedToFront" -> {
+                        // Organizer engine only (VD engine has no such event):
+                        // the ROM re-fronted OUR task. Forensics for the
+                        // multi-embed bench — if card 1 logs this right after
+                        // card 2's launch, peekLast routing crossed over.
+                        TaskEmbedLog.record("${timeStamp()} $pkg :: task id=${a?.getOrNull(0)} moved to front")
+                        null
+                    }
+                    "onTaskVisibilityChanged" -> {
+                        // Dex adds this verb; the round-8 bench complaint "the
+                        // other one stops when I focus this one" would appear
+                        // here as visible=false. Log it with the session's mode
+                        // so one capture answers render-vs-focus definitively.
+                        val vis = a?.getOrNull(1) as? Boolean
+                        TaskEmbedLog.record("${timeStamp()} $pkg :: task visibility changed visible=$vis (mode=${synchronized(this@TaskEmbedEngine) { sessions[token]?.mode }})")
+                        null
+                    }
+                    "onTaskRemovalStarted" -> {
+                        // The ROM is tearing the task down (app swiped away,
+                        // removeTask, crash): the leash release follows, but
+                        // mark the session now so a revive mid-teardown never
+                        // resurrects a dying task.
+                        TaskEmbedLog.record("${timeStamp()} $pkg :: task removal started id=${a?.getOrNull(0)} — card back to tap-to-open")
+                        val unexpected = synchronized(this@TaskEmbedEngine) {
+                            sessions[token]?.takeIf { !it.releasedByUs }
+                                ?.also { it.mode = FALLBACK_LAUNCH }
+                        }
+                        if (unexpected != null) onAsyncFail(FALLBACK_LAUNCH)
                         null
                     }
                     "onBackPressedOnTaskRoot" -> { TaskEmbedLog.record("${timeStamp()} $pkg :: back-press at task root"); null }

@@ -14,6 +14,13 @@
     <uses-permission android:name="android.permission.ACTIVITY_EMBEDDING" />
     <uses-permission android:name="android.permission.MANAGE_ACTIVITY_STACKS" />
     <uses-permission android:name="android.permission.REAL_GET_TASKS" />
+    <!-- VirtualDisplayTaskEmbedder (round 9): VIRTUAL_DISPLAY_FLAG_TRUSTED on
+         createVirtualDisplay is gated by INTERNAL_SYSTEM_WINDOW, and the
+         engine's performBackPress uses InputManager.injectInputEvent →
+         INJECT_EVENTS. Both signature-level: auto-granted at uid 1000,
+         inert on every other install. -->
+    <uses-permission android:name="android.permission.INTERNAL_SYSTEM_WINDOW" />
+    <uses-permission android:name="android.permission.INJECT_EVENTS" />
 
     <application
         android:label="Open Launcher AOSP-TEST"
