@@ -499,6 +499,55 @@ object TaskEmbedEngine {
     }
 
     /**
+     * Re-push the card's CURRENT geometry to the ROM: anchor SurfaceView
+     * re-laid-out first (Compose may have MOVED the holder mid-animation),
+     * then the dex-verified `updateLocationAndTapExcludeRegion()` (re-reads
+     * Host.getPositionInWindow/getScreenBounds/getTapExcludeRegion and rewrites
+     * both the framework-side placement bookkeeping and the IWindowSession
+     * touch-exclusion) and `notifyBoundsChanged()` (WCT task size).
+     *
+     * Round-8 unit photos: with the settings panel opening the whole grid
+     * ANIMATES; the ROM was left holding pre/post-animation coords mid-flight —
+     * the task drifted visibly OUTSIDE its card border and the stale touch
+     * island stole touches from the settings UI over the card area. The widget
+     * debounces this to fire once bounds have settled.
+     */
+    fun refreshGeometry(token: Int) {
+        val s = synchronized(this) { sessions[token] } ?: return
+        val e = s.embedder ?: return
+        val c = s.container ?: return
+        if (s.mode == FALLBACK_LAUNCH) return
+        forceLayout(c)
+        var ok = false
+        try { findMethod(e.javaClass, "updateLocationAndTapExcludeRegion").invoke(e); ok = true }
+        catch (ex: NoSuchMethodException) { Log.w(TAG, "updateLocationAndTapExcludeRegion absent on ${e.javaClass.simpleName}") }
+        catch (ex: Exception) { Log.w(TAG, "updateLocationAndTapExcludeRegion: ${ex.javaClass.simpleName}: ${ex.cause ?: ex.message}") }
+        try { findMethod(e.javaClass, "notifyBoundsChanged").invoke(e) }
+        catch (ex: Exception) { Log.d(TAG, "notifyBoundsChanged (refresh): ${ex.javaClass.simpleName}") }
+        if (ok) TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: geometry+touch-region re-pushed")
+    }
+
+    /** Touch-island switch: the ROM-side tap-exclusion that hands touches over
+     *  the card rect to the embedded task. OFF = clearTapExcludeRegion() — the
+     *  launcher/settings UI becomes touchable over the card AGAIN while the
+     *  embed keeps rendering (user verdict: settings must be operable on top
+     *  of a live embed; the stale island was eating those touches). ON =
+     *  re-push current region via updateLocationAndTapExcludeRegion. */
+    fun setTouchIsland(token: Int, enabled: Boolean) {
+        val s = synchronized(this) { sessions[token] } ?: return
+        val e = s.embedder ?: return
+        if (s.mode == FALLBACK_LAUNCH) return
+        try {
+            if (enabled) findMethod(e.javaClass, "updateLocationAndTapExcludeRegion").invoke(e)
+            else         findMethod(e.javaClass, "clearTapExcludeRegion").invoke(e)
+            TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: touch island ${if (enabled) "ON" else "OFF"}")
+            Log.i(TAG, "touch island ${if (enabled) "ON" else "OFF"} token=$token pkg=${s.packageName}")
+        } catch (ex: Exception) {
+            Log.w(TAG, "setTouchIsland($enabled): ${ex.javaClass.simpleName}: ${ex.cause ?: ex.message}")
+        }
+    }
+
+    /**
      * Revive a LIVE session whose rendering died underneath us — the two
      * unit-observed cases:
      *  a) host SurfaceView surface destroyed+re-created (launcher occluded by
@@ -537,6 +586,7 @@ object TaskEmbedEngine {
         if (!forceReinitialize && s.mode == TASK_EMBEDDER && surfaceAlive && reassertTask(e, s.packageName)) {
             TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: revive done — re-assert only (surface alive)")
             Log.i(TAG, "revive: re-assert only (no relaunch) pkg=${s.packageName}")
+            refreshGeometry(token)   // coords may have drifted while occluded
             return
         }
 
@@ -549,6 +599,7 @@ object TaskEmbedEngine {
             initializeAndLaunch(act, base, e, anchor, s.packageName, s.bounds, s.mode == TASK_EMBEDDER)
             synchronized(this) { s.launchedOnce = true }
             TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: revive relaunch OK")
+            refreshGeometry(token)
         } catch (ex: Exception) {
             TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: revive failed(${ex.javaClass.simpleName}: ${ex.cause ?: ex.message})")
             Log.w(TAG, "revive relaunch failed for ${s.packageName}", ex)

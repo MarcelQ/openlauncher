@@ -132,7 +132,17 @@ fun TaskEmbedWidget(
             embedToken = TaskEmbedEngine.nextToken()
             liveMode   = TaskEmbedEngine.embedWithToken(act, container, packageName, b2, embedToken) { mode -> liveMode = mode }
         } else if (liveMode == EmbedMode.TASK_EMBEDDER || liveMode == EmbedMode.TASK_ORGANIZER) {
-            TaskEmbedEngine.resize(embedToken, b.right - b.left, b.bottom - b.top)
+            // DEBOUNCE mid-animation: the ROM keeps whatever coords it is handed
+            // (unit round-8 photos: opening Settings animates the whole grid;
+            // pushes mid-flight left the task visibly outside its card border
+            // and a stale touch island eating settings touches). Only push once
+            // the card has actually settled; LaunchedEffect re-keying cancels
+            // this delay on every animation frame, so only the last one lands.
+            kotlinx.coroutines.delay(350)
+            val b2 = screenBounds ?: return@LaunchedEffect
+            if (!embedRectOnScreen(b2, dm.widthPixels, dm.heightPixels)) return@LaunchedEffect
+            TaskEmbedEngine.resize(embedToken, b2.right - b2.left, b2.bottom - b2.top)
+            TaskEmbedEngine.refreshGeometry(embedToken)
         }
     }
 
@@ -150,18 +160,35 @@ fun TaskEmbedWidget(
         if (owner != null) {
             val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
                 when (event) {
-                    androidx.lifecycle.Lifecycle.Event.ON_PAUSE ->
+                    androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
                         pausedAt.set(System.currentTimeMillis())
+                        // The launcher is going occluded (settings app / vendor
+                        // panel in front): drop the touch island IMMEDIATELY so
+                        // the foreground UI is touchable over the card area —
+                        // unit verdict 2026-11-20: "touch doesn't work on the
+                        // settings UI in the area where the app is running, as
+                        // if the app had focus". The embed itself stays alive +
+                        // rendering; ON_RESUME re-asserts geometry + island.
+                        val t0 = embedToken
+                        if (t0 != 0 && (liveMode == EmbedMode.TASK_EMBEDDER || liveMode == EmbedMode.TASK_ORGANIZER))
+                            TaskEmbedEngine.setTouchIsland(t0, false)
+                    }
                     androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
                         val since = pausedAt.getAndSet(0L)
                         val idle  = if (since > 0) System.currentTimeMillis() - since else 0L
                         val t = embedToken
                         val live = liveMode == EmbedMode.TASK_EMBEDDER || liveMode == EmbedMode.TASK_ORGANIZER
-                        if (t != 0 && embedReviveOnResume(idle, live)) {
+                        if (t != 0 && live) {
                             // 600 ms settle: the launcher window + card bounds
                             // need a relayout pass or two before re-asserting.
-                            container.postDelayed(
-                                { TaskEmbedEngine.revive(t, "launcher resumed after ${idle / 1000}s") }, 600)
+                            // ALWAYS restore geometry + touch island (even a
+                            // <1 s recents peek turned it off on pause); plus
+                            // the full revive ladder past the idle threshold.
+                            container.postDelayed({
+                                TaskEmbedEngine.refreshGeometry(t)
+                                if (embedReviveOnResume(idle, true))
+                                    TaskEmbedEngine.revive(t, "launcher resumed after ${idle / 1000}s")
+                            }, 600)
                         }
                     }
                     else -> Unit
