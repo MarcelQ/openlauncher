@@ -465,3 +465,59 @@ breadcrumbs and NO `TASK_ORGANIZER failed(NoSuchMethod…)`. Both cards render
 card additionally depends on the ROM's tap-exclude honoring per-host-window
 regions (two engines pushing exclusion to the SAME launcher window token can
 collide — first logged collision candidate for round 10).
+
+### G.5 ROUND 9b — AVD PASS-CAPABILITY AUDIT + BENCH FORCE-ATTEMPT HOOK (2026-11-20)
+
+The live-embed engines are unreachable on any AVD: the API 37 Google-test image
+rejects the platform-signed `aospDebug` APK with `INSTALL_FAILED_SHARED_USER_INPARTIBLE`
+(expected negative control), and `android.window.TaskEmbedder*` does not exist in
+API 37 AOSP at all. So the AVD can only audit the code that runs BEFORE those
+classes are reached. To make that audit real rather than a silent uid-gate skip,
+the engine gained a BENCH FORCE-ATTEMPT hook:
+
+    adb shell setprop persist.log.tag.d.embed I      # unset with "" (revert on user devices!)
+
+`TaskEmbed.engineUsageAllowed` ORs the system-uid gate with
+`Log.isLoggable(EMBED_FORCE_TAG, Log.INFO)`, so the engine chain is genuinely
+ATTEMPTED at any uid and its honest failure lands in the Diagnostics ring.
+The tag name must stay ≤4 dots (`persist.log.tag.d.emblembed` is un-settable —
+Android rejects it; `d.embed` works).
+
+Two supporting refactors (both JVM-tested, TaskEmbedTest now 15 tests / 200 total):
+- the round-9 constructor probe rule moved out of the engine into pure
+  `TaskEmbed.selectEmbedderCtor(ctors, hostItf)` — 2-arg `(Context,Host)` first,
+  else `(Context,Host,Z,Z,Z)`, else null (engine then throws a NAMED
+  NoSuchMethodException rather than silently re-registering the organizer);
+- `engineUsageAllowed(systemUid, forcedByLogLevel)` gate rule.
+
+AVD verdicts (Medium_Phone_API_37.0, 1280x720@212, normal debug build
+`0.0.5 (6) 2ef4129`, uid 10236, force-attempt ON, TWO EMBED cards assigned
+MediaSim + Maps, plus live MAP cards on the same grid):
+- Session bookkeeping is correct and independent: one gate line per card with
+  its OWN bounds and package (`com.example.mediasim` at 681,364-972,712 and
+  `com.google.android.apps.maps` at 981,364-1272,712), no cross-talk, no
+  crash (`logcat -b crash` clean), `vdFirst` correctly NOT triggered (no live
+  organizer session exists — both chains died on the missing class).
+- Chain ladder executes: `TASK_EMBEDDER failed(ClassNotFoundException:
+  android.window.TaskEmbedder$Host)` → `TASK_ORGANIZER failed(same)` →
+  `FALLBACK_LAUNCH (tap to open)`. i.e. the round-9 rule "an additional card
+  never re-registers the organizer on a live session" plus the failure ladder
+  are wired as designed.
+- Fallback never auto-launches: zero `ActivityTaskManager START` lines for
+  either package while both cards sat in fallback; both cards showed the
+  assigned app icon + `TAP TO OPEN (OVERLAY MODE)` (amber dot).
+- Per-card assignment works through the card context menu (CHOOSE APP → app
+  picker → Maps), persists, and renders per-card (Maps icon vs MediaSim icon).
+- Tap-to-open fallback drives PipWidget's chain: `card tapped -> fallback
+  freeform launch` → `FREEFORM_REFLECTION failed(NoSuchMethodException)` →
+  `FREEFORM_BUNDLE OK bounds=<card rect>` → Maps resumed.
+- The Diagnostics report's "last app-embed engine events" ring carries the
+  whole 12-entry trace with no adb attached — the no-bench-cable forensics path.
+
+What the AVD CANNOT and did not prove (unit-only territory): real in-card
+render, the 5-arg ctor being selected on the real ROM class, `peekLast()`
+non-collision, multi-embed simultaneous interactivity, geometry settle /
+touch island / revive ladder (all engine-state dependent — `refreshGeometry`,
+`setTouchIsland` and `revive` all early-return while a session is
+FALLBACK_LAUNCH). Those stay queued for the Zhantang-signed round-9 build on
+the trinket unit.

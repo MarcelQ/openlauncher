@@ -39,6 +39,58 @@ package com.openlauncher.app.ui.widget
  * logic is JVM-unit-testable.
  */
 
+/** Bench force-attempt log tag (see engineUsageAllowed). Keep it short:
+ *  Android rejects persist properties with more than 4 dots, so
+ *  `persist.log.tag.d.emblembed` is NOT settable — `d.embed` is. */
+const val EMBED_FORCE_TAG = "d.embed"
+
+/**
+ * Engine attempt gate. Normally the ROM's embedding engines only engage at
+ * system uid (their signature permissions are never granted otherwise). For
+ * BENCH DIAGNOSTICS the attempt can be forced ON regardless of uid with
+ * `setprop persist.log.tag.<EMBED_FORCE_TAG> I` — read via Log.isLoggable,
+ * the platform's supported log-level-tag mechanism: the attempt then runs on
+ * any ROM and its honest failure lands in the Diagnostics ring instead of
+ * the quiet gate-only line — on the unit that means "permission denied"
+ * verdicts WITHOUT re-signing, on any AVD it exercises the ctor probe +
+ * session bookkeeping. Default (unset) = the honest uid gate. Never force
+ * this on a user device: it defeats the never-auto-launch guarantee for
+ * normal builds.
+ */
+fun engineUsageAllowed(systemUid: Boolean, forcedByLogLevel: Boolean): Boolean =
+    systemUid || forcedByLogLevel
+
+/**
+ * Engine constructor selection (round 9, the multi-embed fix, dex-verified):
+ * this ROM's VirtualDisplayTaskEmbedder has NO (Context, Host) ctor — only
+ * <init>(Context, TaskEmbedder$Host, ZZZ)V, the booleans stored in order as
+ * mSingleTaskInstance, mUsePublicVirtualDisplay, mUseTrustedDisplay. Calling
+ * getConstructor(Context, Host) threw NoSuchMethodException on EVERY
+ * additional card, and the old chain then fell through to RE-registering the
+ * windowing-mode organizer whose peekLast() binding stole card 1's task
+ * ("it doesn't know which widget to render the right app"). Selection is
+ * pure here so the rule is JVM-tested; the engine instantiates with the flags
+ * read off the ROM's own onInitialize bytecode (singleTask=true → one task
+ * locked per card display + RESUMED/FOCUSED there; private VD (no
+ * FLAG_PUBLIC +0x1) so no app can discover card displays; trusted (
+ * FLAG_TRUSTED +0x400) — required for reparentDisplayContent + input).
+ * Returns null when neither shape exists (e.g. the Host interface itself is
+ * absent on the running framework — API 31+ AOSP).
+ */
+fun selectEmbedderCtor(
+    ctors: List<java.lang.reflect.Constructor<*>>, hostItf: Class<*>
+): java.lang.reflect.Constructor<*>? {
+    ctors.firstOrNull { c ->
+        c.parameterTypes.size == 2 && c.parameterTypes[0] == android.content.Context::class.java &&
+        c.parameterTypes[1] == hostItf
+    }?.let { return it }
+    return ctors.firstOrNull { c ->
+        c.parameterTypes.size == 5 && c.parameterTypes[0] == android.content.Context::class.java &&
+        c.parameterTypes[1] == hostItf &&
+        c.parameterTypes.drop(2).all { it == java.lang.Boolean.TYPE }
+    }
+}
+
 /** Ordered embed strategies. First success wins and keeps the card live. */
 enum class EmbedMode { TASK_EMBEDDER, TASK_ORGANIZER, FALLBACK_LAUNCH }
 

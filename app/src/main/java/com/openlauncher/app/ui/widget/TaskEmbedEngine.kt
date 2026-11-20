@@ -138,11 +138,15 @@ object TaskEmbedEngine {
     ): EmbedMode {
         val granted = embedPermissions(activity)
         val systemUid = Process.myUid() == 1000
+        // Bench force-attempt (see engineUsageAllowed): Log.isLoggable is the
+        // platform mechanism behind `setprop persist.log.tag.d.embed I` and
+        // re-reads live, so the prop takes effect without a process restart.
+        val forced = engineUsageAllowed(systemUid, Log.isLoggable(EMBED_FORCE_TAG, Log.INFO))
         val manage = granted.contains(PERM_MANAGE_ACTIVITY_TASKS) || granted.contains(PERM_MANAGE_ACTIVITY_STACKS)
         val sdk = android.os.Build.VERSION.SDK_INT
         val missing = embedMissingPermissions(sdk, granted)
-        Log.i(TAG, "embed pkg=$packageName sdk=$sdk uid=${Process.myUid()} missing=$missing bounds=$bounds")
-        TaskEmbedLog.record("${timeStamp()} $packageName :: gate uid=${Process.myUid()} sdk=$sdk missing=$missing")
+        Log.i(TAG, "embed pkg=$packageName sdk=$sdk uid=${Process.myUid()} missing=$missing bounds=$bounds${if (forced && !systemUid) " FORCED-ATTEMPT" else ""}")
+        TaskEmbedLog.record("${timeStamp()} $packageName :: gate uid=${Process.myUid()} sdk=$sdk missing=$missing${if (forced && !systemUid) " FORCED-ATTEMPT" else ""}")
 
         // Caller-claimed token wins; make the engine's own sequence skip past it
         // so future claims never collide.
@@ -207,7 +211,10 @@ object TaskEmbedEngine {
                 TaskEmbedLog.record("${timeStamp()} $packageName :: organizer engine busy — VirtualDisplay engine first (multi-embed)")
         }
 
-        for (mode in embedChain(systemUid, sdk, bounds.isValid && embedEnginesAllowed(systemUid, sdk, manage), vdFirst)) {
+        // First arg is the chain's "systemUid" slot: under FORCED-ATTEMPT the
+        // gate opens without uid 1000 so bench devices exercise the real
+        // engine path and record its honest failure (bench hook only).
+        for (mode in embedChain(forced, sdk, bounds.isValid && embedEnginesAllowed(forced, sdk, manage || forced), vdFirst)) {
             try {
                 when (mode) {
                     TASK_EMBEDDER    -> return startViaTaskEmbedder(activity, container, packageName, bounds, token, TE_IMPL_CLASS, onOutcome)
@@ -279,35 +286,21 @@ object TaskEmbedEngine {
         }
         val hostProxy = Proxy.newProxyInstance(hostCls.classLoader, arrayOf(hostCls), hostHandler)
 
-        // Constructor probe (round-9 dex ground truth, the multi-embed fix):
-        // this ROM's VirtualDisplayTaskEmbedder has NO (Context, Host) ctor —
-        // only <init>(Context, TaskEmbedder$Host, ZZZ)V where the booleans map,
-        // in dex field-set order, to mSingleTaskInstance, mUsePublicVirtualDisplay
-        // and mUseTrustedDisplay. Calling getConstructor(Context, Host) threw
-        // NoSuchMethodException on EVERY second card (the old chain then
-        // re-registered the windowing-mode organizer and stole card 1's
-        // peekLast binding — "it doesn't know which widget renders which app").
-        // Flags chosen from the ROM's own onInitialize bytecode:
-        //   singleTaskInstance = true  → setDisplayToSingleTaskInstance(displayId)
-        //     locks one task to the display: per-card displays can never
-        //     cross-wire, and the task is created RESUMED+FOCUSED on its own
-        //     display (the native "keep the embedded app running").
-        //   usePublicVirtualDisplay = false → dex 0012: adds VIRTUAL_DISPLAY_FLAG_PUBLIC
-        //     (0x1). Keep the display PRIVATE: an app must never discover or
-        //     move itself to a card display; we launch via setLaunchDisplayId.
-        //   useTrustedDisplay = true → dex 0018: adds VIRTUAL_DISPLAY_FLAG_TRUSTED
-        //     (0x400), what the framework needs to reparent the task surface
-        //     into our host (reparentDisplayContent) and route input.
-        val embedder = try {
-            implCls.getConstructor(Context::class.java, hostCls).newInstance(activity, hostProxy)
-        } catch (nsme: NoSuchMethodException) {
-            val ctor = implCls.constructors.firstOrNull { c ->
-                c.parameterTypes.size == 5 && c.parameterTypes[0] == Context::class.java &&
-                c.parameterTypes[1] == hostCls &&
-                c.parameterTypes.drop(2).all { it == java.lang.Boolean.TYPE }
-            } ?: throw nsme
+        // Constructor probe (round-9 multi-embed fix; selection rule pure in
+        // TaskEmbed.selectEmbedderCtor, JVM-tested): 2-arg (Context,Host)
+        // first, else the ROM's 5-arg (Context,Host,ZZZ) with flags read off
+        // the ROM's own onInitialize bytecode: singleTaskInstance=true
+        // (setDisplayToSingleTaskInstance - one task locked per card display,
+        // RESUMED+FOCUSED there), private VD (no FLAG_PUBLIC: apps must never
+        // discover card displays), trusted (FLAG_TRUSTED: required for
+        // reparentDisplayContent + input routing).
+        val ctor = selectEmbedderCtor(implCls.constructors.toList(), hostCls)
+            ?: throw NoSuchMethodException("${implCls.name} has no (Context,Host) or (Context,Host,Z,Z,Z) ctor on this framework")
+        if (ctor.parameterTypes.size == 5)
             TaskEmbedLog.record("${timeStamp()} $pkg :: ${implCls.simpleName} 5-arg ctor (singleTask=true, publicVD=false, trusted=true)")
-            ctor.newInstance(activity, hostProxy, true, false, true)
+        val embedder = when (ctor.parameterTypes.size) {
+            2 -> ctor.newInstance(activity, hostProxy)
+            else -> ctor.newInstance(activity, hostProxy, true, false, true)
         }
 
         // Listener: surface state + task identity into the log ring.

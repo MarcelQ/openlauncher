@@ -143,4 +143,51 @@ class TaskEmbedTest {
         assertEquals("entry-19", snap.last())
         assertEquals("entry-8", snap.first())
     }
+
+    @Test
+    fun `bench force-attempt opens the gate only when the log-level tag says so`() {
+        // default: honest system-uid gate
+        assertTrue(engineUsageAllowed(systemUid = true, forcedByLogLevel = false))
+        assertFalse(engineUsageAllowed(systemUid = false, forcedByLogLevel = false))
+        // setprop persist.log.tag.d.embed I -> Log.isLoggable true -> attempt (bench only)
+        assertTrue(engineUsageAllowed(systemUid = false, forcedByLogLevel = true))
+    }
+
+    @Test
+    fun `ctor probe selects the 2-arg engine when present and the ZZZ engine when not`() {
+        // Round-9 rule, the multi-embed root cause: newer/other ROMs may ship
+        // the plain (Context,Host) ctor; the SPD ROM's VirtualDisplay engine
+        // ships ONLY (Context,Host,Z,Z,Z) — a 2-arg-only lookup threw
+        // NoSuchMethodException and the old chain then hijacked card 1.
+        val host = FakeEmbedHostItf::class.java
+        val two = ProbeEmbedder2::class.java.constructors.toList()
+        val five = ProbeEmbedder5::class.java.constructors.toList()
+        assertEquals(2, selectEmbedderCtor(two, host)?.parameterTypes?.size)
+        assertEquals(5, selectEmbedderCtor(five, host)?.parameterTypes?.size)
+        // Both shapes present: the simple one wins (matches the try order).
+        assertEquals(2, selectEmbedderCtor(two + five, host)?.parameterTypes?.size)
+        // Wrong host interface or wrong arg shapes -> null (engine then throws
+        // a named NoSuchMethodException; NO silent organizer re-registration).
+        assertNull(selectEmbedderCtor(two + five, String::class.java))
+        assertNull(selectEmbedderCtor(ProbeEmbedderWrong::class.java.constructors.toList(), host))
+    }
+}
+
+// Fixtures for the ctor-probe rule: selectEmbedderCtor only COMPARES parameter
+// types, it never instantiates, so stand-ins are enough (the engine passes
+// real framework classes at runtime).
+internal interface FakeEmbedHostItf
+internal class ProbeEmbedder2 {
+    @Suppress("UNUSED_PARAMETER")
+    constructor(ctx: android.content.Context, host: FakeEmbedHostItf)
+}
+internal class ProbeEmbedder5 {
+    @Suppress("UNUSED_PARAMETER")
+    constructor(ctx: android.content.Context, host: FakeEmbedHostItf, a: Boolean, b: Boolean, c: Boolean)
+}
+internal class ProbeEmbedderWrong {
+    @Suppress("UNUSED_PARAMETER")
+    constructor(host: FakeEmbedHostItf, ctx: android.content.Context, a: Boolean, b: Boolean, c: Boolean)
+    @Suppress("UNUSED_PARAMETER")
+    constructor(ctx: android.content.Context, host: FakeEmbedHostItf, a: Int, b: Int, c: Int)
 }
