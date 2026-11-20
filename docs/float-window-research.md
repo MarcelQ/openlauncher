@@ -469,19 +469,28 @@ collide — first logged collision candidate for round 10).
 ### G.5 ROUND 9b — AVD PASS-CAPABILITY AUDIT + BENCH FORCE-ATTEMPT HOOK (2026-11-20)
 
 The live-embed engines are unreachable on any AVD: the API 37 Google-test image
-rejects the platform-signed `aospDebug` APK with `INSTALL_FAILED_SHARED_USER_INPARTIBLE`
+rejects the platform-signed `aospDebug` APK with `INSTALL_FAILED_SHARED_USER_INCOMPATIBLE`
 (expected negative control), and `android.window.TaskEmbedder*` does not exist in
 API 37 AOSP at all. So the AVD can only audit the code that runs BEFORE those
 classes are reached. To make that audit real rather than a silent uid-gate skip,
-the engine gained a BENCH FORCE-ATTEMPT hook:
+the engine gained a BENCH FORCE-ATTEMPT flag:
 
-    adb shell setprop persist.log.tag.d.embed I      # unset with "" (revert on user devices!)
+    adb shell settings put    global openlauncher_embed_force 1     # attempt anyway
+    adb shell settings delete global openlauncher_embed_force       # honest gate again
 
-`TaskEmbed.engineUsageAllowed` ORs the system-uid gate with
-`Log.isLoggable(EMBED_FORCE_TAG, Log.INFO)`, so the engine chain is genuinely
-ATTEMPTED at any uid and its honest failure lands in the Diagnostics ring.
-The tag name must stay ≤4 dots (`persist.log.tag.d.emblembed` is un-settable —
-Android rejects it; `d.embed` works).
+`TaskEmbed.engineUsageAllowed` ORs the system-uid gate with that flag, so the
+engine chain is genuinely ATTEMPTED at any uid and its honest failure lands in
+the Diagnostics ring.
+
+Why a Settings.Global key and NOT a log-level tag: the first attempt used
+`persist.log.tag.d.embed I` + `Log.isLoggable(EMBED_FORCE_TAG, Log.INFO)`, and
+the AVD run proved it un-revertable — after `setprop persist.log.tag.d.embed ''`
+(the documented way to clear a log-tag override) `Log.isLoggable(tag, INFO)`
+KEPT returning true, so the hook stayed forced on with no visible switch, and
+Android additionally rejects persist property names with >4 dots
+(`persist.log.tag.d.emblembed` was silently un-settable). `settings delete` has
+clean default-off semantics, needs no permission to READ, and is visible in the
+Diagnostics settings dump.
 
 Two supporting refactors (both JVM-tested, TaskEmbedTest now 15 tests / 200 total):
 - the round-9 constructor probe rule moved out of the engine into pure

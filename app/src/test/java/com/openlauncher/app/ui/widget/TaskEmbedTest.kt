@@ -145,12 +145,14 @@ class TaskEmbedTest {
     }
 
     @Test
-    fun `bench force-attempt opens the gate only when the log-level tag says so`() {
+    fun `bench force flag opens the gate only when the bench flag is set`() {
         // default: honest system-uid gate
-        assertTrue(engineUsageAllowed(systemUid = true, forcedByLogLevel = false))
-        assertFalse(engineUsageAllowed(systemUid = false, forcedByLogLevel = false))
-        // setprop persist.log.tag.d.embed I -> Log.isLoggable true -> attempt (bench only)
-        assertTrue(engineUsageAllowed(systemUid = false, forcedByLogLevel = true))
+        assertTrue(engineUsageAllowed(systemUid = true, forcedByBenchFlag = false))
+        assertFalse(engineUsageAllowed(systemUid = false, forcedByBenchFlag = false))
+        // settings put global openlauncher_embed_force 1 -> attempt (bench only)
+        assertTrue(engineUsageAllowed(systemUid = false, forcedByBenchFlag = true))
+        // and settings delete -> back to the honest gate (flag false again)
+        assertFalse(engineUsageAllowed(systemUid = false, forcedByBenchFlag = false))
     }
 
     @Test

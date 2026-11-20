@@ -138,10 +138,14 @@ object TaskEmbedEngine {
     ): EmbedMode {
         val granted = embedPermissions(activity)
         val systemUid = Process.myUid() == 1000
-        // Bench force-attempt (see engineUsageAllowed): Log.isLoggable is the
-        // platform mechanism behind `setprop persist.log.tag.d.embed I` and
-        // re-reads live, so the prop takes effect without a process restart.
-        val forced = engineUsageAllowed(systemUid, Log.isLoggable(EMBED_FORCE_TAG, Log.INFO))
+        // Bench force-attempt (see engineUsageAllowed): a Settings.Global flag,
+        // read live per embed so no process restart is needed and a DELETE
+        // really turns it off. Guarded: old ROMs can throw on unknown keys.
+        val benchFlag = runCatching {
+            android.provider.Settings.Global.getInt(
+                activity.contentResolver, EMBED_FORCE_SETTING, 0) == 1
+        }.getOrDefault(false)
+        val forced = engineUsageAllowed(systemUid, benchFlag)
         val manage = granted.contains(PERM_MANAGE_ACTIVITY_TASKS) || granted.contains(PERM_MANAGE_ACTIVITY_STACKS)
         val sdk = android.os.Build.VERSION.SDK_INT
         val missing = embedMissingPermissions(sdk, granted)

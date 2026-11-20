@@ -39,26 +39,30 @@ package com.openlauncher.app.ui.widget
  * logic is JVM-unit-testable.
  */
 
-/** Bench force-attempt log tag (see engineUsageAllowed). Keep it short:
- *  Android rejects persist properties with more than 4 dots, so
- *  `persist.log.tag.d.emblembed` is NOT settable — `d.embed` is. */
-const val EMBED_FORCE_TAG = "d.embed"
+/** Bench force-attempt flag (see engineUsageAllowed) — a Settings.Global key,
+ *  settable over adb and readable by any app (Settings.Global READS need no
+ *  permission). A deliberate key name: nothing else in the launcher uses it.
+ *  Why not a log-level tag (`persist.log.tag.<tag>` + Log.isLoggable): that
+ *  mechanism's "revert" (setting the property to an empty string) still makes
+ *  Log.isLoggable(TAG, INFO) return TRUE — verified on the API 37 AVD
+ *  2026-11-20 — so the hook could never be switched off for the next run. */
+const val EMBED_FORCE_SETTING = "openlauncher_embed_force"
 
 /**
  * Engine attempt gate. Normally the ROM's embedding engines only engage at
  * system uid (their signature permissions are never granted otherwise). For
- * BENCH DIAGNOSTICS the attempt can be forced ON regardless of uid with
- * `setprop persist.log.tag.<EMBED_FORCE_TAG> I` — read via Log.isLoggable,
- * the platform's supported log-level-tag mechanism: the attempt then runs on
- * any ROM and its honest failure lands in the Diagnostics ring instead of
- * the quiet gate-only line — on the unit that means "permission denied"
- * verdicts WITHOUT re-signing, on any AVD it exercises the ctor probe +
- * session bookkeeping. Default (unset) = the honest uid gate. Never force
- * this on a user device: it defeats the never-auto-launch guarantee for
- * normal builds.
+ * BENCH DIAGNOSTICS the attempt can be forced ON regardless of uid:
+ * `adb shell settings put global openlauncher_embed_force 1` — revert with
+ * `adb shell settings delete global openlauncher_embed_force`. The attempt
+ * then runs on any ROM and its honest failure lands in the Diagnostics ring
+ * instead of the quiet gate-only line: on the unit that answers
+ * permission/hidden-API verdicts WITHOUT re-signing, on any AVD it exercises
+ * the ctor probe + session bookkeeping. Default (key absent) = the honest uid
+ * gate. Never leave this on a user device: it defeats the never-auto-launch
+ * guarantee for normal builds (the fallback still never auto-launches).
  */
-fun engineUsageAllowed(systemUid: Boolean, forcedByLogLevel: Boolean): Boolean =
-    systemUid || forcedByLogLevel
+fun engineUsageAllowed(systemUid: Boolean, forcedByBenchFlag: Boolean): Boolean =
+    systemUid || forcedByBenchFlag
 
 /**
  * Engine constructor selection (round 9, the multi-embed fix, dex-verified):
