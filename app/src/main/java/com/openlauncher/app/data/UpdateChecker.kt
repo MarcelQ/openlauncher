@@ -110,6 +110,20 @@ data class LocalBuild(val versionCode: Int, val versionName: String, val gitSha:
 
 enum class UpdateReason { NEWER_VERSION, SAME_VERSION_NEW_BUILD, UNKNOWN_VERSION }
 
+/**
+ * How the downloaded APK gets installed (round 10, unit-verified problem):
+ * the SPD bench unit's installer UI silently never appears for our
+ * ACTION_VIEW+FileProvider handoff, but platform-signed bench builds run at
+ * uid 1000 with INSTALL_PACKAGES (declared in the aospDebug manifest ONLY)
+ * and can install through a PackageInstaller session themselves. Normal
+ * builds never hold that permission and keep the classic installer handoff.
+ * Pure — JVM-tested; the ViewModel resolves the permission itself.
+ */
+enum class InstallRoute { SILENT_SESSION, INSTALLER_INTENT }
+
+fun installRouteFor(installPackagesGranted: Boolean): InstallRoute =
+    if (installPackagesGranted) InstallRoute.SILENT_SESSION else InstallRoute.INSTALLER_INTENT
+
 /** Result of comparing [LocalBuild] against [RemoteUpdate]. */
 sealed class UpdateDecision {
     data object UpToDate : UpdateDecision()
@@ -125,6 +139,7 @@ sealed interface UpdateUiState {
     data class UpdateAvailable(val remote: RemoteUpdate, val reason: UpdateReason) : UpdateUiState
     data class Failed(val message: String) : UpdateUiState
     data class Downloading(val percent: Int) : UpdateUiState
+    data object Installing : UpdateUiState
     data class ReadyToInstall(val remote: RemoteUpdate) : UpdateUiState
     // Carries the remote so "Continue" after granting can resume without re-checking.
     data class NeedsInstallPermission(val remote: RemoteUpdate) : UpdateUiState

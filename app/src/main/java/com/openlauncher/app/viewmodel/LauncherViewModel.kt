@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings as AndroidSettings
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.openlauncher.app.BuildConfig
@@ -32,12 +33,16 @@ import com.openlauncher.app.data.SettingsRepository
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.SoundPadConfig
 import com.openlauncher.app.data.UpdateApi
+import com.openlauncher.app.data.UPDATER_TAG
 import com.openlauncher.app.data.UpdateChannel
 import com.openlauncher.app.data.UpdateDecision
+import com.openlauncher.app.data.InstallRoute
+import com.openlauncher.app.data.installRouteFor
 import com.openlauncher.app.data.UpdateUiState
 import com.openlauncher.app.data.WeatherApi
 import com.openlauncher.app.data.WeatherProvider
 import com.openlauncher.app.data.WidgetInstance
+import com.openlauncher.app.data.RemoteUpdate
 import com.openlauncher.app.data.buildRemoteUpdate
 import com.openlauncher.app.data.availableUpdateChannels
 import com.openlauncher.app.data.authHeaderFor
@@ -51,6 +56,7 @@ import com.openlauncher.app.data.hasWidgetType
 import com.openlauncher.app.data.instancesOnPage
 import com.openlauncher.app.data.nextInstanceId
 import com.openlauncher.app.data.splitRepo
+import java.io.File
 import com.openlauncher.app.data.resizePageLayout
 import com.openlauncher.app.data.toWeatherState
 import com.openlauncher.app.util.SunriseSunset
@@ -168,7 +174,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
         if (updateFlowJob?.isActive == true) return
         val app = getApplication<Application>()
-        if (!ApkDownloader.canInstall(app)) {
+        // Platform bench builds (INSTALL_PACKAGES, aospDebug manifest only) never
+        // need the "install unknown apps" grant — skip that gate for them.
+        if (!ApkDownloader.hasInstallPackages(app) && !ApkDownloader.canInstall(app)) {
             _updateState.value = UpdateUiState.NeedsInstallPermission(remote)
             return
         }
@@ -200,11 +208,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 val apkCode = file?.let { ApkDownloader.archiveVersionCode(app, it) }
                 if (file == null || apkCode == null || apkCode < localBuild().versionCode) {
                     runCatching { file?.delete() }
+                    Log.w(UPDATER_TAG, "download verification failed file=${file?.absolutePath} code=$apkCode")
                     _updateState.value = UpdateUiState.Failed("Downloaded APK couldn't be verified")
                 } else {
-                    _updateState.value = UpdateUiState.ReadyToInstall(remote)
-                    runCatching { app.startActivity(ApkDownloader.installIntent(app, file)) }
-                        .onFailure { _updateState.value = UpdateUiState.Failed("Couldn't open the installer") }
+                    Log.i(UPDATER_TAG, "download verified ${file.name} ${file.length()}B code=$apkCode")
+                    installOrHandoff(remote, file)
                 }
             } catch (e: java.util.concurrent.CancellationException) { throw e }
               catch (t: Throwable) { _updateState.value = UpdateUiState.Failed("Update failed: ${t.message}") }
@@ -215,11 +223,62 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun installDownloadedUpdate() {
         val remote = (_updateState.value as? UpdateUiState.ReadyToInstall)?.remote ?: return
         val app = getApplication<Application>()
-        if (!ApkDownloader.canInstall(app)) { _updateState.value = UpdateUiState.NeedsInstallPermission(remote); return }
+        if (!ApkDownloader.hasInstallPackages(app) && !ApkDownloader.canInstall(app)) {
+            _updateState.value = UpdateUiState.NeedsInstallPermission(remote); return
+        }
         val file = ApkDownloader.downloadedFile(app, remote.fileName)
         if (file == null || !file.isFile) { checkForUpdates(); return }
-        runCatching { app.startActivity(ApkDownloader.installIntent(app, file)) }
-            .onFailure { _updateState.value = UpdateUiState.Failed("Couldn't open the installer") }
+        installOrHandoff(remote, file)
+    }
+
+    /**
+     * Round 10 (unit: "tap Install → nothing happens", startActivity throws
+     * nothing — the SPD installer UI never surfaces, likely crash-looped
+     * behind hide_error_dialogs=1 or launched behind the HOME task):
+     * platform-signed bench builds (INSTALL_PACKAGES, aospDebug manifest
+     * overlay only) install the verified APK through their OWN
+     * PackageInstaller session — no installer UI, no unknown-sources grant,
+     * and the ROM installer can't swallow the install. Normal builds keep
+     * the classic ACTION_VIEW handoff, now with an ACTION_INSTALL_PACKAGE
+     * retry. Every step logs under `Updater`; the GitHub token never does.
+     */
+    private fun installOrHandoff(remote: RemoteUpdate, file: File) {
+        val app = getApplication<Application>()
+        when (installRouteFor(ApkDownloader.hasInstallPackages(app))) {
+            InstallRoute.SILENT_SESSION -> {
+                Log.i(UPDATER_TAG, "route: silent session install ${file.name}")
+                _updateState.value = UpdateUiState.Installing
+                updateFlowJob = viewModelScope.launch {
+                    runCatching { ApkDownloader.silentInstall(app, file) }
+                        .onSuccess {
+                            // A successful self-update kills this process — the
+                            // app simply re-opens at the new version. Surviving
+                            // (edge case) lands in a clean state again.
+                            Log.i(UPDATER_TAG, "silent install SUCCESS (process restart expected)")
+                            _updateState.value = UpdateUiState.Idle
+                        }
+                        .onFailure { t ->
+                            Log.w(UPDATER_TAG, "silent install FAILED: ${t.javaClass.simpleName}: ${t.message}")
+                            _updateState.value = UpdateUiState.Failed(
+                                "Silent install failed: ${t.message ?: t.javaClass.simpleName}")
+                        }
+                }
+            }
+            InstallRoute.INSTALLER_INTENT -> {
+                Log.i(UPDATER_TAG, "route: installer handoff ${file.name}")
+                _updateState.value = UpdateUiState.ReadyToInstall(remote)
+                runCatching { app.startActivity(ApkDownloader.installIntent(app, file)) }
+                    .onFailure { t ->
+                        Log.w(UPDATER_TAG, "ACTION_VIEW handoff threw: ${t.javaClass.simpleName}: ${t.message}")
+                        runCatching { app.startActivity(ApkDownloader.installIntentLegacy(app, file)) }
+                            .onFailure { t2 ->
+                                Log.w(UPDATER_TAG, "legacy handoff threw: ${t2.javaClass.simpleName}: ${t2.message}")
+                                _updateState.value = UpdateUiState.Failed(
+                                    "Couldn't open the installer (${t.javaClass.simpleName})")
+                            }
+                    }
+            }
+        }
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────

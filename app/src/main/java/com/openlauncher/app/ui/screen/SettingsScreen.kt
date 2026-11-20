@@ -1291,6 +1291,12 @@ fun SettingsScreen(
                     )
                 }
 
+                is UpdateUiState.Installing -> SettingsRow(
+                    label    = "Installing…",
+                    sublabel = "silent session install · the app restarts when it replaces itself",
+                    icon     = Icons.Default.GetApp
+                ) {}
+
                 is UpdateUiState.ReadyToInstall -> SettingsButton(
                     label    = "Install",
                     sublabel = "APK downloaded — tap to open the installer again",

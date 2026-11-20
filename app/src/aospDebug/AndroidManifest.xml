@@ -21,6 +21,15 @@
          inert on every other install. -->
     <uses-permission android:name="android.permission.INTERNAL_SYSTEM_WINDOW" />
     <uses-permission android:name="android.permission.INJECT_EVENTS" />
+    <!-- Updater round 10 (2026-11-20): the SPD unit's installer UI never shows
+         for our ACTION_VIEW handoff (startActivity throws nothing — either the
+         installer crash-loops hidden behind hide_error_dialogs=1, or the launch
+         lands behind the HOME task). Bench builds run as android.uid.system with
+         the platform signature, so INSTALL_PACKAGES (signature|privileged) is
+         auto-granted and the in-app updater can install through a
+         PackageInstaller session directly — no installer UI, no "install
+         unknown apps" grant, and normal builds never request it at all. -->
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES" />
 
     <application
         android:label="Open Launcher AOSP-TEST"

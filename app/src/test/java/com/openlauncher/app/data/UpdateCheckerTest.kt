@@ -184,4 +184,13 @@ class UpdateCheckerTest {
         assertTrue(!devRemote.privateAsset)
         assertEquals("", devRemote.assetApiUrl)
     }
+
+    @Test fun `install route is silent session only with INSTALL_PACKAGES`() {
+        // Round 10: only the platform-signed aospDebug install (uid 1000 +
+        // INSTALL_PACKAGES declared in its manifest overlay) may self-install
+        // via PackageInstaller; every normal build keeps the classic
+        // installer-UI handoff (the SPD unit's installer never surfaces there).
+        assertEquals(InstallRoute.SILENT_SESSION, installRouteFor(true))
+        assertEquals(InstallRoute.INSTALLER_INTENT, installRouteFor(false))
+    }
 }
