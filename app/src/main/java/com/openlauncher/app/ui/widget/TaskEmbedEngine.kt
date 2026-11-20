@@ -90,13 +90,34 @@ object TaskEmbedEngine {
         var organizer: Any? = null,
         // true only while WE release the embedder (teardown): the Listener's
         // onReleased must not flip a session we are intentionally closing.
-        var releasedByUs: Boolean = false
+        var releasedByUs: Boolean = false,
+        // Relaunch material (round-7 revive path, mini-aa pattern): everything
+        // initializeAndLaunch needs, kept on the session so a re-initialized
+        // host surface or an ON_RESUME watchdog can re-launch WITHOUT tearing
+        // the embedder down (their TaskView stays alive across relaunches too).
+        var activity: Activity? = null,
+        var anchor: SurfaceView? = null,
+        var baseCls: Class<*>? = null,
+        var launchedOnce: Boolean = false,
+        // Framework task id from Listener.onTaskCreated — used to purge the
+        // task on teardown (mini-aa removeCurrentTask) so a later re-embed is
+        // never shadowed by a stale task.
+        var taskId: Int = -1,
+        // Card's outcome callback (liveMode dot updates) kept so revive
+        // failures can flip the card honest — never a silent dead surface.
+        var onOutcome: ((EmbedMode) -> Unit)? = null
     )
 
     // All live embed sessions, keyed by card token (insertion-ordered for
     // deterministic forensics). Multiple cards = multiple concurrent embeds.
     private val sessions = LinkedHashMap<Int, Session>()
     private var tokenSeq = 0
+
+    /** Re-launch material on the session (see Session) + the card's outcome
+     *  callback so a revive can flip the dot even outside the embed chain. */
+    private fun Session.attachRelaunchMaterial(activity: Activity, anchor: SurfaceView, base: Class<*>, onOutcome: (EmbedMode) -> Unit) {
+        this.activity = activity; this.anchor = anchor; this.baseCls = base; this.onOutcome = onOutcome
+    }
 
     fun isLiveFor(token: Int, packageName: String): Boolean = synchronized(this) {
         sessions[token]?.let { it.packageName == packageName && it.mode != FALLBACK_LAUNCH } == true
@@ -268,6 +289,12 @@ object TaskEmbedEngine {
                     }
                     "onTaskCreated"     -> {
                         TaskEmbedLog.record("${timeStamp()} $pkg :: task created id=${a?.getOrNull(0)} comp=${a?.getOrNull(1)}")
+                        // Remember the framework task id: teardown purges it
+                        // (mini-aa removeCurrentTask) so a stale fullscreen
+                        // task can never shadow a later re-embed attempt.
+                        (a?.getOrNull(0) as? Int)?.let { tid ->
+                            synchronized(this@TaskEmbedEngine) { sessions[token]?.taskId = tid }
+                        }
                         // Task exists NOW: push the card geometry through the
                         // ROM's own bounds path so the task is card-sized from
                         // the first frame (launch bounds are ignored by this
@@ -276,7 +303,7 @@ object TaskEmbedEngine {
                         null
                     }
                     "onBackPressedOnTaskRoot" -> { TaskEmbedLog.record("${timeStamp()} $pkg :: back-press at task root"); null }
-                    else -> null
+                    else -> { TaskEmbedLog.record("${timeStamp()} $pkg :: listener.${m.name}"); null }
                 }
             })
         baseCls.getMethod("setListener", listenerCls).invoke(embedder, listener)
@@ -323,7 +350,10 @@ object TaskEmbedEngine {
         }
 
         val mode = if (implCls.name == TE_IMPL_CLASS) TASK_EMBEDDER else TASK_ORGANIZER
-        synchronized(this) { sessions[token] = Session(token, pkg, bounds, mode, embedder, hostProxy, container) }
+        synchronized(this) {
+            sessions[token] = Session(token, pkg, bounds, mode, embedder, hostProxy, container)
+                .also { it.attachRelaunchMaterial(activity, anchor, baseCls, onAsyncFail) }
+        }
 
         // The surface may already be valid by the time we register (forceLayout
         // above can complete it synchronously on this ROM) — then the callback
@@ -335,6 +365,7 @@ object TaskEmbedEngine {
             fired = true
             try {
                 initializeAndLaunch(activity, baseCls, embedder, anchor, pkg, bounds, implCls.name == TE_IMPL_CLASS)
+                synchronized(this@TaskEmbedEngine) { sessions[token]?.launchedOnce = true }
             } catch (e: Exception) {
                 TaskEmbedLog.record("${timeStamp()} $pkg :: ${implCls.simpleName} host-surface init failed(${e.javaClass.simpleName}: ${e.message})")
                 Log.w(TAG, "host surface init failed for $pkg (fromCallback=$fromCallback)", e)
@@ -349,7 +380,17 @@ object TaskEmbedEngine {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 TaskEmbedLog.record("${timeStamp()} $pkg :: host surface created")
                 Log.i(TAG, "host surface created pkg=$pkg")
-                tryInit(true)
+                if (!fired) { tryInit(true); return }
+                // RE-created surface (round-5 unit log: `host surface destroyed`
+                // when the launcher went occluded behind Settings, then created
+                // again on return). The embedder is still alive but its host
+                // SurfaceControl is stale — the old engine ignored this and the
+                // card stayed black forever ("hard to get it to render again").
+                // mini-aa's answer to the same failure was relaunch-on-resume;
+                // ours is stronger: re-initialize the SAME embedder against the
+                // NEW surface, then purge + relaunch the task so the ROM hands
+                // us a fresh leash parented under it.
+                revive(token, "surface re-created", forceReinitialize = true)
             }
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
                 TaskEmbedLog.record("${timeStamp()} $pkg :: host surface changed ${width}x$height")
@@ -406,6 +447,13 @@ object TaskEmbedEngine {
 
         val intent = launchIntentFor(activity.packageManager, pkg)
             ?: throw IllegalStateException("no launch intent")
+        // NEW_TASK|MULTIPLE_TASK (mini-aa ground truth: their startApp always
+        // adds 0x10008000): an already-running app then opens a FRESH embed
+        // task instead of RESUMING its old (fullscreen/hidden) one — a resumed
+        // old task never fires onTaskCreated, which is why re-embeds after an
+        // occlusion used to leave the card black. Purge + these flags together
+        // make every embed launch deterministic.
+        intent.addFlags(EMBED_LAUNCH_FLAGS)
         val opts = ActivityOptions.makeBasic()
         // Sizing ground truth (dex + bench round 5): TOTE.onTaskAppeared is ONLY
         // reparent+show+apply — the ROM never bounds/positions the task itself.
@@ -448,6 +496,127 @@ object TaskEmbedEngine {
         try { findMethod(e.javaClass, "resizeTask", java.lang.Integer.TYPE, java.lang.Integer.TYPE)
                 .invoke(e, width, height) }
         catch (ex: Exception) { Log.w(TAG, "resizeTask(${width}x$height): ${ex.javaClass.simpleName}: ${ex.message}") }
+    }
+
+    /**
+     * Revive a LIVE session whose rendering died underneath us — the two
+     * unit-observed cases:
+     *  a) host SurfaceView surface destroyed+re-created (launcher occluded by
+     *     another app/Settings: round-5 log `host surface destroyed`), embedder
+     *     still alive but its host SurfaceControl stale, card black forever;
+     *  b) launcher resumed after a pause while the session still claims live
+     *     (widget's lifecycle watchdog) — mini-aa does exactly this (their
+     *     ON_RESUME observer: resetForResume() + startApp() relaunch into the
+     *     still-alive TaskView; only >4 h idle escalates to activity.recreate).
+     * Escalation ladder (cheap → brutal):
+     *  1. WCT re-assert: reorder(mTaskToken, onTop=true) + setHidden(false) via
+     *     WindowOrganizer.applyTransaction (dex-verified verbs; mTaskToken is
+     *     the WindowContainerToken field TOTE keeps from onTaskAppeared). If the
+     *     task only got hidden behind the occluder, this alone restores render.
+     *  2. purgeTask + embedder release + initialize(new SurfaceControl) +
+     *     relaunch — same task-kill+relaunch semantics mini-aa uses, but
+     *     without tearing down the card composable (no embed-token churn).
+     *  3. Failure → session flips to FALLBACK_LAUNCH and the card's outcome
+     *     callback paints the honest amber tap-to-open dot.
+     */
+    fun revive(token: Int, reason: String, forceReinitialize: Boolean = false) {
+        val s = synchronized(this) { sessions[token] } ?: return
+        if (s.mode == FALLBACK_LAUNCH || s.embedder == null || s.activity == null ||
+            s.anchor == null || s.baseCls == null) return
+        val act = s.activity!!; val anchor = s.anchor!!; val base = s.baseCls!!; val e = s.embedder!!
+        TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: revive (${reason}, mode=${s.mode})")
+        Log.i(TAG, "revive token=$token pkg=${s.packageName} reason=$reason mode=${s.mode}")
+
+        // 1. WCT re-assert (only meaningful for the organizer engine: its task
+        //    lives on the DEFAULT display where a fullscreen window can push it
+        //    invisible; the VirtualDisplay engine's private display can't).
+        //    If our host surface is still ALIVE, the task merely got hidden
+        //    behind the occluder — reorder+show alone restores rendering, and we
+        //    never kill a working app (mini-aa always relaunches; we try not to).
+        val surfaceAlive = runCatching { anchor.holder.surface?.isValid == true }.getOrDefault(false)
+        if (!forceReinitialize && s.mode == TASK_EMBEDDER && surfaceAlive && reassertTask(e, s.packageName)) {
+            TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: revive done — re-assert only (surface alive)")
+            Log.i(TAG, "revive: re-assert only (no relaunch) pkg=${s.packageName}")
+            return
+        }
+
+        // 2. Full re-embed into the SAME embedder: purge task, release the
+        //    stale engine state, re-initialize against the live surface, relaunch.
+        purgeTask(s)
+        try { findMethod(e.javaClass, "release").invoke(e) }
+        catch (ex: Exception) { Log.w(TAG, "revive release (ignored): ${ex.javaClass.simpleName}: ${ex.cause ?: ex.message}") }
+        try {
+            initializeAndLaunch(act, base, e, anchor, s.packageName, s.bounds, s.mode == TASK_EMBEDDER)
+            synchronized(this) { s.launchedOnce = true }
+            TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: revive relaunch OK")
+        } catch (ex: Exception) {
+            TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: revive failed(${ex.javaClass.simpleName}: ${ex.cause ?: ex.message})")
+            Log.w(TAG, "revive relaunch failed for ${s.packageName}", ex)
+            synchronized(this) { s.mode = FALLBACK_LAUNCH }
+            s.onOutcome?.invoke(FALLBACK_LAUNCH)
+        }
+    }
+
+    /** WindowContainerToken the organizer embedder keeps from onTaskAppeared
+     *  (dex: TOTE field mTaskToken : Landroid/window/WindowContainerToken;). */
+    private fun taskTokenOf(e: Any): Any? {
+        var k: Class<*>? = e.javaClass
+        while (k != null) {
+            try {
+                val f = k.getDeclaredField("mTaskToken")
+                f.isAccessible = true
+                return f.get(e)
+            } catch (_: NoSuchFieldException) { k = k.superclass }
+        }
+        return null
+    }
+
+    /** WCT reorder(token,true)+setHidden(token,false) -> applyTransaction.
+     *  Dex-verified this fork's WCT carries reorder(WindowContainerToken,Z) and
+     *  setHidden(...), and WindowOrganizer.applyTransaction exists. Best-effort:
+     *  any miss logs and returns false (caller escalates). */
+    private fun reassertTask(e: Any, pkg: String): Boolean = try {
+        val wctCls = Class.forName("android.window.WindowContainerTransaction")
+        val tok = taskTokenOf(e) ?: return false
+        val wct = wctCls.getConstructor().newInstance()
+        findMethod(wctCls, "reorder", Class.forName("android.window.WindowContainerToken"), java.lang.Boolean.TYPE)
+            .invoke(wct, tok, true)
+        runCatching {
+            findMethod(wctCls, "setHidden", Class.forName("android.window.WindowContainerToken"), java.lang.Boolean.TYPE)
+                .invoke(wct, tok, false)
+        }
+        val woCls = Class.forName("android.window.WindowOrganizer")
+        woCls.getMethod("applyTransaction", wctCls).invoke(null, wct)
+        TaskEmbedLog.record("${timeStamp()} $pkg :: WCT reorder+setHidden(false) applied")
+        true
+    } catch (ex: Exception) {
+        Log.w(TAG, "reassertTask: ${ex.javaClass.simpleName}: ${ex.cause ?: ex.message}")
+        false
+    }
+
+    /** Kill the framework task (mini-aa removeCurrentTask): guarantees a
+     *  stale/hidden task can never shadow the next embed launch (launch would
+     *  otherwise just RESUME the old fullscreen task and the embedder would
+     *  never see a fresh leash = the black-card symptom). */
+    private fun purgeTask(s: Session) {
+        if (s.taskId < 0) return
+        try {
+            val am = s.activity!!.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            ActivityManager_removeTask(am, s.taskId)
+            TaskEmbedLog.record("${timeStamp()} ${s.packageName} :: purged task id=${s.taskId}")
+            Log.i(TAG, "purged task ${s.taskId} pkg=${s.packageName}")
+        } catch (ex: Exception) {
+            Log.w(TAG, "removeTask(${s.taskId}): ${ex.javaClass.simpleName}: ${ex.cause ?: ex.message}")
+        }
+        s.taskId = -1
+    }
+
+    /** ActivityManager.removeTask is @hide (uid-1000 exempt); reflect it once. */
+    private var removeTaskMethod: java.lang.reflect.Method? = null
+    private fun ActivityManager_removeTask(am: android.app.ActivityManager, taskId: Int) {
+        val m = removeTaskMethod ?: android.app.ActivityManager::class.java
+            .getMethod("removeTask", java.lang.Integer.TYPE).also { removeTaskMethod = it }
+        m.invoke(am, taskId)
     }
 
     /** Force a measure/layout pass over a Compose-hosted container so freshly
@@ -512,6 +681,10 @@ object TaskEmbedEngine {
     private fun teardown(s: Session) {
         Log.i(TAG, "tearing down ${s.mode} session token=${s.token} pkg=${s.packageName}")
         s.releasedByUs = true
+        // Purge the task FIRST (mini-aa removeCurrentTask): a task orphaned by
+        // a failed release() would linger hidden and shadow the next embed
+        // launch (launch would resume the stale task; no leash, no render).
+        try { purgeTask(s) } catch (_: Exception) {}
         s.embedder?.let { e ->
             // stop and release in SEPARATE try blocks: round-3 bench showed a
             // throwing stop() (embedder never initialized — session died before

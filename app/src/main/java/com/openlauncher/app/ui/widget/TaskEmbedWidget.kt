@@ -136,6 +136,42 @@ fun TaskEmbedWidget(
         }
     }
 
+    // Resume watchdog (mini-aa's keep-alive answer, decompiled 2026-11-20 and
+    // improved): their TaskViewContainer observes launcher ON_PAUSE/ON_RESUME
+    // and re-launches the embedded app whenever the launcher comes back after
+    // >30 s paused (full activity recreate after >4 h). Unit round-5 verdict:
+    // opening Settings destroys the launcher's card surfaces, and our embed
+    // then never recovered. Here: on resume with a live session, hand off to
+    // the engine's revive ladder (re-assert WCT first when the surface is
+    // still alive; full re-initialize+relaunch otherwise).
+    val pausedAt = remember { java.util.concurrent.atomic.AtomicLong(0L) }
+    DisposableEffect(Unit) {
+        val owner = context as? androidx.lifecycle.LifecycleOwner
+        if (owner != null) {
+            val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                when (event) {
+                    androidx.lifecycle.Lifecycle.Event.ON_PAUSE ->
+                        pausedAt.set(System.currentTimeMillis())
+                    androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                        val since = pausedAt.getAndSet(0L)
+                        val idle  = if (since > 0) System.currentTimeMillis() - since else 0L
+                        val t = embedToken
+                        val live = liveMode == EmbedMode.TASK_EMBEDDER || liveMode == EmbedMode.TASK_ORGANIZER
+                        if (t != 0 && embedReviveOnResume(idle, live)) {
+                            // 600 ms settle: the launcher window + card bounds
+                            // need a relayout pass or two before re-asserting.
+                            container.postDelayed(
+                                { TaskEmbedEngine.revive(t, "launcher resumed after ${idle / 1000}s") }, 600)
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+            owner.lifecycle.addObserver(obs)
+            onDispose { owner.lifecycle.removeObserver(obs) }
+        } else onDispose { }
+    }
+
     // Stop the session when THIS card leaves composition (page swipe-out,
     // card delete, app exit). MUST be keyed on Unit, not embedToken:
     // a token re-key runs onDispose AFTER embedToken was reassigned, and

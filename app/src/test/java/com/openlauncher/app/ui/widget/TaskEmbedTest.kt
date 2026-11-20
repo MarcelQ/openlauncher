@@ -102,8 +102,21 @@ class TaskEmbedTest {
 
     @Test
     fun `embed launch flags are NEW_TASK plus MULTIPLE_TASK`() {
-        // Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+        // Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK —
+        // byte-identical to mini-aa's TaskView startApp addFlags(268500992).
         assertEquals(0x10008000, EMBED_LAUNCH_FLAGS)
+    }
+
+    @Test
+    fun `resume watchdog revives only live sessions past the idle threshold`() {
+        // mini-aa pattern (30 s there; ours shorter — the revive ladder starts
+        // non-destructive with a WCT reorder+show).
+        assertTrue(embedReviveOnResume(idleMs = 5_000, sessionLive = true))
+        assertTrue(embedReviveOnResume(idleMs = EMBED_REVIVE_IDLE_MS, sessionLive = true))
+        // Recents-peek / transient window blips: do nothing.
+        assertFalse(embedReviveOnResume(idleMs = 500, sessionLive = true))
+        // Dead/fallback sessions must not be revived from the watchdog.
+        assertFalse(embedReviveOnResume(idleMs = 60_000, sessionLive = false))
     }
 
     @Test

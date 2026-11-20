@@ -104,15 +104,31 @@ fun embedMissingPermissions(sdkInt: Int, granted: Set<String>): List<String> {
 }
 
 /**
- * Intent flags for the plain launch the TASK_ORGANIZER route uses: a NEW task
- * whose leash we then reparent. MULTIPLE_TASK mirrors PipWidget's rationale —
- * an already-running app opens its own embed instance instead of being raised
- * fullscreen. Values are Intent.FLAG_ACTIVITY_NEW_TASK (0x10000000) |
- * Intent.FLAG_ACTIVITY_MULTIPLE_TASK (0x8000) inlined so this file stays
- * framework-free and JVM-unit-testable. (The TASK_EMBEDDER route does NOT use
- * these: the embedder creates its own root task and launches into it.)
+ * Intent flags for EVERY embed launch (both live engines): a NEW task whose
+ * leash the engine then reparents/mirrors. MULTIPLE_TASK mirrors PipWidget's
+ * rationale + mini-aa ground truth (their TaskView startApp always adds
+ * 0x10008000 = NEW_TASK|MULTIPLE_TASK): an already-running app opens its own
+ * embed instance instead of RESUMING its old (fullscreen/hidden) task — a
+ * resumed old task never fires onTaskCreated, which is why post-occlusion
+ * re-embeds left the card black on the unit. Values are
+ * Intent.FLAG_ACTIVITY_NEW_TASK (0x10000000) | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+ * (0x8000) inlined so this file stays framework-free and JVM-unit-testable.
  */
 const val EMBED_LAUNCH_FLAGS: Int = 0x10000000 or 0x00008000
+
+/**
+ * Resume-watchdog gate (mini-aa pattern, EmbeddedAppViewKt TaskViewContainer):
+ * their ON_RESUME observer re-launches the embedded app into the still-alive
+ * TaskView whenever the launcher was paused >30 s (and recreates the whole
+ * activity after >4 h). We watch for ON_PAUSE/ON_RESUME too but act sooner —
+ * our revive ladder starts with a NON-destructive WCT reorder+show and only
+ * escalates to purge+relaunch, so a short flicker threshold suffices.
+ * [idleMs] = time between ON_PAUSE and ON_RESUME; below the threshold treat
+ * as window-recycling noise (recents peek etc.) and do nothing.
+ */
+const val EMBED_REVIVE_IDLE_MS: Long = 1000L
+fun embedReviveOnResume(idleMs: Long, sessionLive: Boolean): Boolean =
+    sessionLive && idleMs >= EMBED_REVIVE_IDLE_MS
 
 /**
  * Fallback decision for a tap when no embed engine is live: null = do nothing
