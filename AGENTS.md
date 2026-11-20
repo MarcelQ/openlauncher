@@ -223,6 +223,22 @@ This is the public OpenLauncher Android project. Treat its checked-in source as 
   The app's own build is identified by `BuildConfig.GIT_SHA` (auto via `git rev-parse` at
   configuration time; "unknown" off git). Downloads need `REQUEST_INSTALL_PACKAGES` (user must also
   allow "install unknown apps" on API 23+).
+- **PRIVATE AOSP release channel (added 2026-11-20, commit 0fc2642)**: the platform-signed
+   bench build (`.aosp` applicationId) updates over GitHub WITHOUT the key or signed APKs ever
+   going public. Rolling tag `aosp-latest` (asset `openlauncher-aosp-debug.apk`) lives in the
+   releases-only PRIVATE repo `MarcelQ/openlauncher-aosp` (empty placeholder commit only —
+   never push source there). Publish path is the WORKSTATION script
+   `C:\Users\Marcel\CarLauncherLab\tools\sign-and-publish-aosp.ps1` (builds aospDebug, re-signs
+   with `reference\unit-20261118\keys\SPRCrel_platform.*`, HARD-aborts unless the signer cert
+   matches `5304915c…2888cb7`, writes the same `versionCode=… commit=…` NOTES marker, `gh release`
+   uploads). CI has no involvement and must never gain any platform-key secret. In-app:
+   `UpdateChannel.AOSP` is offered ONLY on `.aosp` installs (`availableUpdateChannels`,
+   JVM-tested); downloads fail closed without a token — private assets fetch via
+   `api.github.com/repos/<repo>/releases/assets/<id>` + `Accept: application/octet-stream` with
+   the user's fine-grained read-only PAT (contents:read on that repo only) stored in DataStore key
+   `update_token` (Settings ▸ Updates ▸ "GitHub token (read-only)", masked, never logged, never in
+   Diagnostics). `.gitignore` blocks `*.pk8`/`*.pem` repo-wide. NEVER make that repo public,
+   NEVER attach key material to GitHub in any form (secret/artifact/gist).
 
 ## Real head unit — hardware profile (from the Settings ▸ Diagnostics report, 2026-11-15)
 
